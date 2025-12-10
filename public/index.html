@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>资源分享</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>[x-cloak]{display:none!important}body{background:#f9fafb;font-family:sans-serif}</style>
+</head>
+<body x-data="app()">
+    <nav class="bg-white border-b shadow-sm sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto px-4 h-14 flex justify-between items-center">
+            <span class="font-bold text-lg tracking-tight">📦 资源站</span>
+            <div class="flex items-center space-x-3 text-sm">
+                <template x-if="!user">
+                    <button @click="showLogin = true" class="text-gray-600 hover:text-black">登录</button>
+                </template>
+                <template x-if="user">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-gray-400" x-text="user.role === 'admin' ? '管理员' : user.email"></span>
+                        <template x-if="user.role === 'admin'">
+                            <button @click="showAdmin = true" class="bg-black text-white px-3 py-1 rounded hover:bg-gray-800">发布</button>
+                        </template>
+                        <button @click="logout" class="text-red-500">登出</button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-2xl mx-auto px-4 py-8 space-y-4">
+        <template x-for="item in resources" :key="item.id">
+            <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition">
+                <div class="flex justify-between items-start mb-3">
+                    <h3 class="font-medium text-gray-900" x-text="item.title"></h3>
+                    <div class="flex gap-1">
+                        <span x-show="item.requires_login" class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">🔒 需登录</span>
+                        <span x-show="item.view_limit > 0" class="px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded" x-text="'限 ' + item.view_limit + ' 次'"></span>
+                    </div>
+                </div>
+                <div x-show="contentMap[item.id]" class="p-3 bg-gray-50 rounded text-sm text-gray-700 break-all select-all border border-gray-100" x-html="formatContent(contentMap[item.id])"></div>
+                <button x-show="!contentMap[item.id]" @click="viewResource(item)" class="text-sm text-blue-600 font-medium hover:underline">查看内容</button>
+            </div>
+        </template>
+        <div x-show="resources.length === 0" class="text-center text-gray-400 py-10 text-sm">暂无内容</div>
+    </main>
+
+    <!-- 登录框 -->
+    <div x-show="showLogin" x-cloak class="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50" @click.self="showLogin = false">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <h2 class="text-lg font-bold mb-4">登录</h2>
+            <div class="space-y-3">
+                <input type="text" x-model="loginForm.email" placeholder="QQ邮箱 或 管理员账号" class="w-full border-gray-300 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-black focus:outline-none">
+                
+                <div class="flex gap-2">
+                    <input type="text" x-model="loginForm.code" placeholder="验证码 或 管理员密码" class="flex-1 border-gray-300 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-black focus:outline-none">
+                    <button @click="sendCode" :disabled="codeTimer > 0" class="bg-gray-100 px-3 py-2 rounded-lg text-xs text-gray-600 w-24 shrink-0 hover:bg-gray-200">
+                        <span x-text="codeTimer > 0 ? codeTimer + 's' : '获取验证码'"></span>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-400">* 普通用户请输入QQ邮箱，管理员直接输入账号密码</p>
+                <button @click="login" class="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-gray-800 transition">进入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 发布框 -->
+    <div x-show="showAdmin" x-cloak class="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50" @click.self="showAdmin = false">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+            <h2 class="text-lg font-bold mb-4">发布内容</h2>
+            <div class="space-y-3">
+                <input type="text" x-model="adminForm.title" placeholder="标题" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <textarea x-model="adminForm.content" rows="4" placeholder="内容 (链接、文字、HTML图片代码)" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
+                <div class="flex items-center justify-between text-sm text-gray-700">
+                    <label class="flex items-center"><input type="checkbox" x-model="adminForm.requires_login" class="mr-2"> 必须登录</label>
+                    <div class="flex items-center">限制次数 <input type="number" x-model="adminForm.view_limit" class="w-16 border rounded ml-2 px-1 text-center" placeholder="0"></div>
+                </div>
+                <button @click="createResource" class="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-gray-800">发布</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                user: JSON.parse(localStorage.getItem('user') || 'null'),
+                token: localStorage.getItem('token') || '',
+                resources: [], contentMap: {}, showLogin: false, showAdmin: false, codeTimer: 0,
+                loginForm: { email: '', code: '' },
+                adminForm: { title: '', content: '', requires_login: true, view_limit: 0 },
+                init() { this.fetchResources(); },
+                async fetchResources() { this.resources = await (await fetch('/api/resources')).json(); },
+                formatContent(content) {
+                    // 简单的自动识别链接
+                    if(content.startsWith('http')) return `<a href="${content}" target="_blank" class="text-blue-600 underline break-all">${content}</a>`;
+                    return content;
+                },
+                async sendCode() {
+                    const res = await fetch('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ email: this.loginForm.email }) });
+                    const data = await res.json();
+                    if (res.ok) {
+                        if(data.message.includes('管理员')) return alert('检测到管理员账号，请直接输入密码登录');
+                        alert('验证码已发送');
+                        this.codeTimer = 60;
+                        const t = setInterval(() => { this.codeTimer--; if(this.codeTimer <= 0) clearInterval(t); }, 1000);
+                    } else alert(data.error);
+                },
+                async login() {
+                    const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify(this.loginForm) });
+                    const data = await res.json();
+                    if (res.ok) {
+                        this.user = { email: data.email, role: data.role }; this.token = data.token;
+                        localStorage.setItem('user', JSON.stringify(this.user)); localStorage.setItem('token', this.token);
+                        this.showLogin = false; alert('登录成功');
+                    } else alert(data.error);
+                },
+                logout() { this.user = null; this.token = ''; localStorage.clear(); location.reload(); },
+                async viewResource(item) {
+                    const res = await fetch(`/api/resource/${item.id}`, { headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {} });
+                    const data = await res.json();
+                    if (res.ok) this.contentMap[item.id] = data.content;
+                    else { alert(data.error); if (res.status === 401) this.showLogin = true; }
+                },
+                async createResource() {
+                    const res = await fetch('/api/admin/create', { method: 'POST', headers: { 'Authorization': `Bearer ${this.token}` }, body: JSON.stringify(this.adminForm) });
+                    if (res.ok) { alert('发布成功'); this.showAdmin = false; this.fetchResources(); this.adminForm = { title: '', content: '', requires_login: true, view_limit: 0 }; }
+                    else alert('失败');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
