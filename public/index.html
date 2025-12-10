@@ -2,81 +2,100 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <title>ACG 资源社</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>资源分享</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <style>[x-cloak]{display:none!important}body{background:#f9fafb;font-family:sans-serif}</style>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        [x-cloak] { display: none !important; }
+        body { 
+            background-color: #fff0f5; 
+            background-image: url('https://www.transparenttextures.com/patterns/sakura.png');
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+        }
+        .anime-card {
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #ffb6c1;
+            box-shadow: 4px 4px 0px #ffb6c1;
+            border-radius: 16px;
+        }
+        .anime-btn {
+            background: #ff69b4;
+            color: white;
+            border: 2px solid #ff1493;
+            box-shadow: 2px 2px 0px #ff1493;
+            transition: all 0.2s;
+        }
+        .anime-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0; }
+        .anime-input {
+            border: 2px solid #ffb6c1;
+            border-radius: 12px;
+            outline: none;
+        }
+        .anime-input:focus { border-color: #ff69b4; }
+    </style>
 </head>
 <body x-data="app()">
-    <nav class="bg-white border-b shadow-sm sticky top-0 z-50">
-        <div class="max-w-4xl mx-auto px-4 h-14 flex justify-between items-center">
-            <span class="font-bold text-lg tracking-tight">📦 资源站</span>
-            <div class="flex items-center space-x-3 text-sm">
+    <nav class="bg-white/80 backdrop-blur-md border-b-2 border-pink-200 sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto px-4 h-16 flex justify-between items-center">
+            <span class="text-2xl font-bold text-pink-500 tracking-wider">🌸 ACG 资源社</span>
+            <div class="flex items-center space-x-3">
                 <template x-if="!user">
-                    <button @click="showLogin = true" class="text-gray-600 hover:text-black">登录</button>
+                    <button @click="showLogin = true" class="text-pink-500 font-bold hover:text-pink-600">登录 (QQ邮箱)</button>
                 </template>
                 <template x-if="user">
                     <div class="flex items-center space-x-3">
-                        <span class="text-gray-400" x-text="user.role === 'admin' ? '管理员' : user.email"></span>
-                        <template x-if="user.role === 'admin'">
-                            <button @click="showAdmin = true" class="bg-black text-white px-3 py-1 rounded hover:bg-gray-800">发布</button>
-                        </template>
-                        <button @click="logout" class="text-red-500">登出</button>
+                        <span class="text-pink-400 text-sm" x-text="user.email"></span>
+                        <button @click="logout" class="text-sm text-gray-400 hover:text-pink-500">登出</button>
                     </div>
                 </template>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-2xl mx-auto px-4 py-8 space-y-4">
+    <main class="max-w-2xl mx-auto px-4 py-8 space-y-6">
         <template x-for="item in resources" :key="item.id">
-            <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition">
-                <div class="flex justify-between items-start mb-3">
-                    <h3 class="font-medium text-gray-900" x-text="item.title"></h3>
-                    <div class="flex gap-1">
-                        <span x-show="item.requires_login" class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">🔒 需登录</span>
-                        <span x-show="item.view_limit > 0" class="px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded" x-text="'限 ' + item.view_limit + ' 次'"></span>
+            <div class="anime-card p-6 transition hover:-translate-y-1">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800" x-text="item.title"></h3>
+                    <div class="flex gap-2">
+                        <span x-show="item.requires_login" class="px-2 py-1 bg-pink-100 text-pink-600 text-xs rounded-full font-bold">🔒 需登录</span>
+                        <span x-show="item.view_limit > 0" class="px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-bold" x-text="'剩'+item.view_limit+'次'"></span>
                     </div>
                 </div>
-                <div x-show="contentMap[item.id]" class="p-3 bg-gray-50 rounded text-sm text-gray-700 break-all select-all border border-gray-100" x-html="formatContent(contentMap[item.id])"></div>
-                <button x-show="!contentMap[item.id]" @click="viewResource(item)" class="text-sm text-blue-600 font-medium hover:underline">查看内容</button>
+                
+                <!-- 内容展示区 -->
+                <div x-show="contentMap[item.id]" class="mt-4 animate-fade-in">
+                    <template x-if="item.type === 'image'">
+                        <img :src="contentMap[item.id]" class="w-full rounded-xl border-2 border-pink-100 shadow-sm">
+                    </template>
+                    <template x-if="item.type !== 'image'">
+                        <div class="p-4 bg-pink-50 rounded-xl text-gray-700 break-all border border-pink-100" x-html="formatContent(contentMap[item.id])"></div>
+                    </template>
+                </div>
+
+                <button x-show="!contentMap[item.id]" @click="viewResource(item)" class="w-full mt-4 py-2 border-2 border-dashed border-pink-300 text-pink-400 rounded-xl hover:bg-pink-50 hover:border-pink-400 font-bold transition">
+                    ✨ 点击查看秘密内容
+                </button>
             </div>
         </template>
-        <div x-show="resources.length === 0" class="text-center text-gray-400 py-10 text-sm">暂无内容</div>
     </main>
 
-    <!-- 登录框 -->
-    <div x-show="showLogin" x-cloak class="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50" @click.self="showLogin = false">
-        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
-            <h2 class="text-lg font-bold mb-4">登录</h2>
-            <div class="space-y-3">
-                <input type="text" x-model="loginForm.email" placeholder="QQ邮箱 或 管理员账号" class="w-full border-gray-300 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-black focus:outline-none">
-                
+    <!-- 登录弹窗 -->
+    <div x-show="showLogin" x-cloak class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="anime-card p-8 w-full max-w-sm bg-white relative">
+            <button @click="showLogin = false" class="absolute top-2 right-4 text-2xl text-pink-300">&times;</button>
+            <h2 class="text-2xl font-bold text-center text-pink-500 mb-6">会员登录</h2>
+            <div class="space-y-4">
+                <input type="text" x-model="loginForm.email" placeholder="你的QQ邮箱" class="anime-input w-full px-4 py-3 bg-pink-50">
                 <div class="flex gap-2">
-                    <input type="text" x-model="loginForm.code" placeholder="验证码 或 管理员密码" class="flex-1 border-gray-300 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-black focus:outline-none">
-                    <button @click="sendCode" :disabled="codeTimer > 0" class="bg-gray-100 px-3 py-2 rounded-lg text-xs text-gray-600 w-24 shrink-0 hover:bg-gray-200">
-                        <span x-text="codeTimer > 0 ? codeTimer + 's' : '获取验证码'"></span>
+                    <input type="text" x-model="loginForm.code" placeholder="验证码" class="anime-input flex-1 px-4 py-3 bg-pink-50">
+                    <button @click="sendCode" :disabled="codeTimer > 0" class="bg-pink-100 text-pink-500 px-3 rounded-xl text-sm font-bold border-2 border-pink-200">
+                        <span x-text="codeTimer > 0 ? codeTimer + 's' : '发送'"></span>
                     </button>
                 </div>
-                <p class="text-xs text-gray-400">* 普通用户请输入QQ邮箱，管理员直接输入账号密码</p>
-                <button @click="login" class="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-gray-800 transition">进入</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 发布框 -->
-    <div x-show="showAdmin" x-cloak class="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50" @click.self="showAdmin = false">
-        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
-            <h2 class="text-lg font-bold mb-4">发布内容</h2>
-            <div class="space-y-3">
-                <input type="text" x-model="adminForm.title" placeholder="标题" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <textarea x-model="adminForm.content" rows="4" placeholder="内容 (链接、文字、HTML图片代码)" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
-                <div class="flex items-center justify-between text-sm text-gray-700">
-                    <label class="flex items-center"><input type="checkbox" x-model="adminForm.requires_login" class="mr-2"> 必须登录</label>
-                    <div class="flex items-center">限制次数 <input type="number" x-model="adminForm.view_limit" class="w-16 border rounded ml-2 px-1 text-center" placeholder="0"></div>
-                </div>
-                <button @click="createResource" class="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-gray-800">发布</button>
+                <button @click="login" class="anime-btn w-full py-3 rounded-xl font-bold text-lg mt-2">开始探索</button>
             </div>
         </div>
     </div>
@@ -86,46 +105,31 @@
             return {
                 user: JSON.parse(localStorage.getItem('user') || 'null'),
                 token: localStorage.getItem('token') || '',
-                resources: [], contentMap: {}, showLogin: false, showAdmin: false, codeTimer: 0,
+                resources: [], contentMap: {}, showLogin: false, codeTimer: 0,
                 loginForm: { email: '', code: '' },
-                adminForm: { title: '', content: '', requires_login: true, view_limit: 0 },
                 init() { this.fetchResources(); },
                 async fetchResources() { this.resources = await (await fetch('/api/resources')).json(); },
-                formatContent(content) {
-                    // 简单的自动识别链接
-                    if(content.startsWith('http')) return `<a href="${content}" target="_blank" class="text-blue-600 underline break-all">${content}</a>`;
-                    return content;
-                },
+                formatContent(content) { return content.startsWith('http') ? `<a href="${content}" target="_blank" class="text-pink-500 underline">${content}</a>` : content; },
                 async sendCode() {
                     const res = await fetch('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ email: this.loginForm.email }) });
-                    const data = await res.json();
-                    if (res.ok) {
-                        if(data.message.includes('管理员')) return alert('检测到管理员账号，请直接输入密码登录');
-                        alert('验证码已发送');
-                        this.codeTimer = 60;
-                        const t = setInterval(() => { this.codeTimer--; if(this.codeTimer <= 0) clearInterval(t); }, 1000);
-                    } else alert(data.error);
+                    if (res.ok) { alert('验证码已发送至QQ邮箱'); this.codeTimer = 60; setInterval(() => this.codeTimer > 0 && this.codeTimer--, 1000); }
+                    else alert((await res.json()).error);
                 },
                 async login() {
-                    const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify(this.loginForm) });
+                    const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ ...this.loginForm, isAdmin: false }) });
                     const data = await res.json();
-                    if (res.ok) {
-                        this.user = { email: data.email, role: data.role }; this.token = data.token;
-                        localStorage.setItem('user', JSON.stringify(this.user)); localStorage.setItem('token', this.token);
-                        this.showLogin = false; alert('登录成功');
+                    if (res.ok) { 
+                        this.user = data; this.token = data.token; 
+                        localStorage.setItem('user', JSON.stringify(data)); localStorage.setItem('token', data.token);
+                        this.showLogin = false; location.reload();
                     } else alert(data.error);
                 },
-                logout() { this.user = null; this.token = ''; localStorage.clear(); location.reload(); },
+                logout() { localStorage.clear(); location.reload(); },
                 async viewResource(item) {
                     const res = await fetch(`/api/resource/${item.id}`, { headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {} });
                     const data = await res.json();
-                    if (res.ok) this.contentMap[item.id] = data.content;
-                    else { alert(data.error); if (res.status === 401) this.showLogin = true; }
-                },
-                async createResource() {
-                    const res = await fetch('/api/admin/create', { method: 'POST', headers: { 'Authorization': `Bearer ${this.token}` }, body: JSON.stringify(this.adminForm) });
-                    if (res.ok) { alert('发布成功'); this.showAdmin = false; this.fetchResources(); this.adminForm = { title: '', content: '', requires_login: true, view_limit: 0 }; }
-                    else alert('失败');
+                    if (res.ok) { this.contentMap[item.id] = data.content; item.type = data.type; }
+                    else { alert(data.error); if(res.status === 401) this.showLogin = true; }
                 }
             }
         }
