@@ -2,98 +2,206 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>蓝鲸后台</title>
+    <title>蓝鲸后台管理</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
 <body class="bg-gray-100" x-data="admin()">
-    <!-- 登录省略，结构不变 -->
+    
+    <!-- 登录界面 -->
     <div x-show="!token" class="min-h-screen flex items-center justify-center">
-        <div class="bg-white p-8 rounded shadow w-96">
-            <h1 class="font-bold mb-4">管理员登录</h1>
-            <input type="text" x-model="loginForm.loginId" class="w-full border p-2 mb-2" placeholder="ID">
-            <input type="password" x-model="loginForm.password" class="w-full border p-2 mb-4" placeholder="PWD">
-            <button @click="login" class="w-full bg-blue-600 text-white py-2 rounded">Login</button>
+        <div class="bg-white p-8 rounded-lg shadow-lg w-96">
+            <h1 class="text-xl font-bold mb-4 text-blue-600">蓝鲸中控台</h1>
+            <input type="text" x-model="loginForm.loginId" placeholder="管理员账号" class="w-full border p-2 rounded mb-4">
+            <input type="password" x-model="loginForm.password" placeholder="密码" class="w-full border p-2 rounded mb-6">
+            <button @click="login" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">登录</button>
         </div>
     </div>
 
-    <div x-show="token" class="min-h-screen">
-        <nav class="bg-slate-800 text-white p-4 flex justify-between items-center">
-            <span class="font-bold">🐋 蓝鲸管理</span>
-            <div class="space-x-4">
-                <button @click="tab='post'; isEdit=false; resetPost()" :class="tab==='post'?'text-blue-300':''">发布/修改</button>
-                <button @click="tab='list'; loadResources()" :class="tab==='list'?'text-blue-300':''">文章列表</button>
-                <button @click="logout" class="text-red-400">退出</button>
+    <!-- 后台主界面 -->
+    <div x-show="token" class="min-h-screen" x-cloak>
+        <nav class="bg-slate-800 text-white p-4 sticky top-0 z-50 shadow-md">
+            <div class="max-w-6xl mx-auto flex justify-between items-center">
+                <span class="font-bold text-lg">🐋 蓝鲸管理</span>
+                <div class="space-x-1 text-sm flex">
+                    <button @click="switchTab('post')" :class="tab==='post'?'bg-slate-700 text-white':'text-slate-300 hover:text-white'" class="px-3 py-2 rounded transition">发布/修改</button>
+                    <button @click="switchTab('list')" :class="tab==='list'?'bg-slate-700 text-white':'text-slate-300 hover:text-white'" class="px-3 py-2 rounded transition">文章列表</button>
+                    <button @click="switchTab('users')" :class="tab==='users'?'bg-slate-700 text-white':'text-slate-300 hover:text-white'" class="px-3 py-2 rounded transition">用户管理</button>
+                    <button @click="switchTab('cats')" :class="tab==='cats'?'bg-slate-700 text-white':'text-slate-300 hover:text-white'" class="px-3 py-2 rounded transition">分类管理</button>
+                    <div class="w-px h-6 bg-slate-600 mx-2 self-center"></div>
+                    <button @click="logout" class="text-red-400 hover:text-red-300 px-3 py-2">退出</button>
+                </div>
             </div>
         </nav>
 
-        <main class="max-w-5xl mx-auto p-6">
-            <!-- 列表搜索页 -->
-            <div x-show="tab === 'list'" class="bg-white p-6 rounded shadow">
-                <div class="flex gap-2 mb-4">
-                    <input type="text" x-model="searchQ" class="border p-2 flex-1 rounded" placeholder="搜索文章...">
-                    <button @click="loadResources" class="bg-blue-600 text-white px-4 rounded">搜索</button>
+        <main class="max-w-6xl mx-auto p-6">
+            
+            <!-- 1. 发布/编辑页 -->
+            <div x-show="tab === 'post'" class="bg-white p-6 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-bold text-gray-800" x-text="isEdit ? '✏️ 修改资源 (ID: '+post.id+')' : '✨ 发布新资源'"></h2>
+                    <button x-show="isEdit" @click="resetPost()" class="text-sm text-blue-500 hover:underline">取消修改，转为发布</button>
                 </div>
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100"><tr><th>ID</th><th>标题</th><th>日期</th><th>操作</th></tr></thead>
-                    <tbody>
-                        <template x-for="r in resourceList" :key="r.id">
-                            <tr class="border-b">
-                                <td class="p-2" x-text="r.id"></td>
-                                <td x-text="r.title"></td>
-                                <td x-text="r.custom_date"></td>
-                                <td>
-                                    <button @click="editResource(r.id)" class="text-blue-600 mr-2">修改</button>
-                                    <button @click="delResource(r.id)" class="text-red-600">删除</button>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- 发布/编辑页 -->
-            <div x-show="tab === 'post'" class="bg-white p-6 rounded shadow">
-                <h2 class="text-lg font-bold mb-4" x-text="isEdit ? '修改资源 (ID: '+post.id+')' : '发布新资源'"></h2>
+                
                 <div class="space-y-4">
-                    <input type="text" x-model="post.title" placeholder="标题 (包含日期可自动识别)" class="w-full border p-2 rounded">
+                    <input type="text" x-model="post.title" placeholder="标题 (包含日期可自动识别，如：2025年12月8日)" class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 outline-none">
+                    
                     <div class="flex gap-4">
-                        <select x-model="post.category_id" class="border p-2 rounded flex-1">
+                        <select x-model="post.category_id" class="border-2 border-gray-200 p-3 rounded-lg flex-1 bg-white">
                             <option value="">选择分类...</option>
                             <template x-for="c in categories" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
                         </select>
-                        <input type="text" x-model="post.manualDate" placeholder="手动日期 (如 2024年日期不详)" class="border p-2 rounded flex-1">
+                        <input type="text" x-model="post.manualDate" placeholder="手动日期 (如自动识别失败可填此项)" class="border-2 border-gray-200 p-3 rounded-lg flex-1">
                     </div>
 
                     <!-- 内容块编辑器 -->
-                    <div class="border rounded p-4 bg-gray-50 space-y-2">
+                    <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 bg-gray-50 space-y-4">
                         <template x-for="(block, idx) in post.blocks" :key="idx">
-                            <div class="flex gap-2 items-center bg-white p-2 rounded border">
-                                <span x-text="idx+1" class="text-xs text-gray-400"></span>
-                                <select x-model="block.type" class="border text-sm p-1 rounded">
-                                    <option value="text">文本</option><option value="link">链接</option><option value="image">图片</option>
-                                </select>
-                                <div class="flex-1">
-                                    <input type="text" x-model="block.value" class="w-full border p-1 rounded text-sm">
-                                    <input x-show="block.type==='image'" type="file" @change="uploadImg($event, idx)" class="text-xs mt-1">
+                            <div class="flex gap-3 items-start bg-white p-4 rounded-lg shadow-sm border border-gray-200 group">
+                                <div class="flex flex-col gap-2 mt-1">
+                                    <span class="text-xs font-bold text-gray-400 bg-gray-100 w-6 h-6 flex items-center justify-center rounded-full" x-text="idx+1"></span>
+                                    <button @click="post.blocks.splice(idx,1)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
                                 </div>
-                                <label class="flex items-center gap-1 text-xs bg-gray-100 p-1 rounded cursor-pointer">
-                                    <input type="checkbox" x-model="block.locked"> 🔒限制
-                                </label>
-                                <button @click="post.blocks.splice(idx,1)" class="text-red-500">✕</button>
+                                
+                                <div class="flex-1 space-y-2">
+                                    <div class="flex gap-2">
+                                        <select x-model="block.type" class="border p-1 rounded text-sm bg-gray-50 font-bold text-gray-600">
+                                            <option value="text">文本段落</option>
+                                            <option value="link">链接地址</option>
+                                            <option value="image">图片</option>
+                                        </select>
+                                        <label class="flex items-center gap-1 text-xs cursor-pointer select-none px-2 rounded border" :class="block.locked ? 'bg-red-50 border-red-200 text-red-600' : 'bg-green-50 border-green-200 text-green-600'">
+                                            <input type="checkbox" x-model="block.locked" class="hidden">
+                                            <span x-text="block.locked ? '🔒 需解锁查看' : '🔓 免费公开'"></span>
+                                        </label>
+                                    </div>
+
+                                    <textarea x-show="block.type==='text'" x-model="block.value" rows="3" class="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-blue-200 outline-none" placeholder="输入正文内容..."></textarea>
+                                    
+                                    <input x-show="block.type==='link'" type="text" x-model="block.value" class="w-full border p-2 rounded text-sm text-blue-600" placeholder="https://example.com/download...">
+                                    
+                                    <div x-show="block.type==='image'" class="space-y-2">
+                                        <div class="flex gap-2">
+                                            <input type="file" @change="uploadImg($event, idx)" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                                        </div>
+                                        <input type="text" x-model="block.value" placeholder="或直接输入图片 URL" class="w-full border p-2 rounded text-sm">
+                                        <div x-show="block.value" class="mt-2">
+                                            <img :src="block.value" class="h-20 rounded border">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </template>
-                        <div class="flex gap-2 mt-2">
-                            <button @click="addBlock('text')" class="text-xs bg-gray-200 px-2 py-1 rounded">+ 文本</button>
-                            <button @click="addBlock('link')" class="text-xs bg-gray-200 px-2 py-1 rounded">+ 链接</button>
-                            <button @click="addBlock('image')" class="text-xs bg-gray-200 px-2 py-1 rounded">+ 图片</button>
+
+                        <div class="flex gap-3 justify-center pt-2">
+                            <button @click="addBlock('text')" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50">+ 📝 文本</button>
+                            <button @click="addBlock('link')" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50">+ 🔗 链接 (默认锁)</button>
+                            <button @click="addBlock('image')" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50">+ 🖼️ 图片</button>
                         </div>
                     </div>
                     
-                    <button @click="publish" class="w-full bg-blue-600 text-white py-2 rounded font-bold">保存提交</button>
+                    <button @click="publish" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition">
+                        <span x-text="isUploading ? '正在上传图片...' : (isEdit ? '保存修改' : '立即发布')"></span>
+                    </button>
                 </div>
             </div>
+
+            <!-- 2. 文章列表页 -->
+            <div x-show="tab === 'list'" class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-xl font-bold mb-4 text-gray-800">文章管理</h2>
+                <div class="flex gap-2 mb-6">
+                    <input type="text" x-model="searchQ" @keyup.enter="loadResources" class="border p-2 flex-1 rounded-lg" placeholder="搜索标题或日期...">
+                    <button @click="loadResources" class="bg-blue-600 text-white px-6 rounded-lg font-bold">搜索</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-600">
+                            <tr>
+                                <th class="p-3 rounded-l-lg">ID</th>
+                                <th class="p-3">标题</th>
+                                <th class="p-3">显示日期</th>
+                                <th class="p-3 rounded-r-lg">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <template x-for="r in resourceList" :key="r.id">
+                                <tr class="hover:bg-blue-50">
+                                    <td class="p-3 font-mono text-gray-500" x-text="r.id"></td>
+                                    <td class="p-3 font-bold text-gray-800" x-text="r.title"></td>
+                                    <td class="p-3 text-gray-500" x-text="r.custom_date || '-'"></td>
+                                    <td class="p-3">
+                                        <button @click="editResource(r.id)" class="text-blue-600 hover:text-blue-800 font-bold mr-3">修改</button>
+                                        <button @click="delResource(r.id)" class="text-red-500 hover:text-red-700">删除</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 3. 用户管理页 (你需要的!) -->
+            <div x-show="tab === 'users'" class="bg-white p-6 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">用户列表 & 配额控制</h2>
+                    <button @click="loadUsers" class="text-sm text-blue-500">🔄 刷新列表</button>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead class="bg-gray-50 text-gray-600">
+                            <tr>
+                                <th class="p-3 border-b">ID</th>
+                                <th class="p-3 border-b">用户名</th>
+                                <th class="p-3 border-b">QQ邮箱</th>
+                                <th class="p-3 border-b">当前基础额度</th>
+                                <th class="p-3 border-b">临时规则 (日期范围)</th>
+                                <th class="p-3 border-b">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <template x-for="u in users" :key="u.id">
+                                <tr class="hover:bg-yellow-50">
+                                    <td class="p-3 font-mono text-gray-400" x-text="u.id"></td>
+                                    <td class="p-3 font-bold" x-text="u.username"></td>
+                                    <td class="p-3" x-text="u.email"></td>
+                                    <td class="p-3">
+                                        <span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold" x-text="(u.daily_limit || 1) + ' 次/天'"></span>
+                                    </td>
+                                    <td class="p-3">
+                                        <div x-show="u.temp_quota_config" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded border border-red-200">
+                                            <span x-text="formatQuota(u.temp_quota_config)"></span>
+                                        </div>
+                                        <div x-show="!u.temp_quota_config" class="text-gray-300 text-xs">-</div>
+                                    </td>
+                                    <td class="p-3">
+                                        <button @click="editQuota(u)" class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700">设置限额</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 4. 分类管理页 -->
+            <div x-show="tab === 'cats'" class="bg-white p-6 rounded-lg shadow max-w-lg">
+                <h2 class="text-xl font-bold mb-4">分类管理</h2>
+                <div class="flex gap-2 mb-6">
+                    <input type="text" x-model="newCat" placeholder="输入新分类名称..." class="border p-2 rounded-lg flex-1 outline-none focus:border-blue-500">
+                    <button @click="manageCat('add')" class="bg-green-500 text-white px-4 rounded-lg font-bold hover:bg-green-600">添加</button>
+                </div>
+                <div class="space-y-2">
+                    <template x-for="c in categories" :key="c.id">
+                        <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg border">
+                            <span class="font-bold text-gray-700" x-text="c.name"></span>
+                            <button @click="manageCat('del', c.id)" class="text-red-500 text-xs hover:bg-red-100 px-2 py-1 rounded">删除</button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -101,57 +209,160 @@
         function admin() {
             return {
                 token: localStorage.getItem('adm_token') || '',
-                tab: 'list', isEdit: false,
-                loginForm: {loginId:'', password:''},
-                categories: [], resourceList: [], searchQ: '',
-                post: { id: null, title:'', category_id:'', blocks:[], manualDate:'' },
+                tab: 'post', // 'post', 'list', 'users', 'cats'
+                isEdit: false,
+                isUploading: false,
+                loginForm: { loginId: '', password: '' },
+                
+                categories: [], 
+                resourceList: [], 
+                users: [],
+                searchQ: '',
+                
+                post: { id: null, title: '', category_id: '', blocks: [], manualDate: '' },
+                newCat: '',
 
-                async init() { if(this.token) { this.loadCats(); this.loadResources(); } },
+                async init() { 
+                    if(this.token) { 
+                        this.loadCats(); 
+                        this.loadResources(); 
+                        // 预加载 users 以防 tab 切换卡顿
+                        // this.loadUsers(); 
+                    } 
+                },
+
+                // === 基础功能 ===
                 async login() {
                     const res = await fetch('/api/auth/login', {method:'POST', body:JSON.stringify({...this.loginForm, isAdmin:true})});
                     const data = await res.json();
-                    if(res.ok) { this.token=data.token; localStorage.setItem('adm_token', data.token); this.loadCats(); this.loadResources(); }
-                    else alert(data.error);
+                    if(res.ok) { 
+                        this.token = data.token; 
+                        localStorage.setItem('adm_token', data.token); 
+                        this.loadCats(); 
+                        this.loadResources();
+                    } else alert(data.error);
                 },
-                logout() { this.token=''; localStorage.removeItem('adm_token'); },
+                logout() { this.token=''; localStorage.removeItem('adm_token'); location.reload(); },
                 auth() { return {'Authorization': `Bearer ${this.token}`}; },
+                switchTab(t) { 
+                    this.tab = t; 
+                    if(t === 'post' && !this.isEdit) this.resetPost();
+                    if(t === 'list') this.loadResources();
+                    if(t === 'users') this.loadUsers();
+                    if(t === 'cats') this.loadCats();
+                },
 
+                // === 资源管理 ===
                 async loadCats() { this.categories = (await (await fetch('/api/public/home')).json()).categories; },
+                
                 async loadResources() {
                     const res = await fetch(`/api/admin/resources?q=${this.searchQ}`, {headers:this.auth()});
                     this.resourceList = await res.json();
                 },
-                
+
                 async editResource(id) {
                     const res = await fetch(`/api/admin/resource/${id}`, {headers:this.auth()});
                     const data = await res.json();
-                    this.post = { id: data.id, title: data.title, category_id: data.category_id, blocks: data.blocks, manualDate: data.custom_date };
-                    this.tab = 'post'; this.isEdit = true;
+                    this.post = { 
+                        id: data.id, 
+                        title: data.title, 
+                        category_id: data.category_id, 
+                        blocks: JSON.parse(data.content_json || '[]'), 
+                        manualDate: data.custom_date 
+                    };
+                    this.isEdit = true;
+                    this.tab = 'post';
                 },
-                
+
                 async delResource(id) {
-                    if(!confirm('确定删除?')) return;
+                    if(!confirm('确定删除? 此操作不可恢复!')) return;
                     await fetch('/api/admin/resource/delete', {method:'POST', headers:this.auth(), body:JSON.stringify({id})});
                     this.loadResources();
                 },
 
                 async publish() {
+                    if(!this.post.title) return alert('标题不能为空');
+                    if(this.post.blocks.length === 0) return alert('请至少添加一个内容块');
+                    
                     const res = await fetch('/api/admin/resource', {method:'POST', headers:this.auth(), body:JSON.stringify(this.post)});
-                    if(res.ok) { alert('保存成功'); this.tab='list'; this.loadResources(); } else alert('失败');
+                    if(res.ok) { 
+                        alert(this.isEdit ? '修改成功' : '发布成功'); 
+                        this.switchTab('list');
+                        this.resetPost();
+                    } else alert('操作失败');
                 },
 
+                // === 内容块与上传 ===
+                addBlock(type) {
+                    this.post.blocks.push({ 
+                        type, 
+                        value: '', 
+                        locked: type === 'link' // 链接默认锁，其他默认开
+                    });
+                },
+                resetPost() {
+                    this.post = { id: null, title: '', category_id: '', blocks: [], manualDate: '' };
+                    this.isEdit = false;
+                },
                 async uploadImg(e, idx) {
                     const file = e.target.files[0]; if(!file) return;
+                    this.isUploading = true;
                     const fd = new FormData(); fd.append('file', file);
-                    const res = await fetch('/api/admin/upload', {method:'POST', headers:this.auth(), body:fd});
-                    const data = await res.json(); if(data.url) this.post.blocks[idx].value = data.url;
+                    try {
+                        const res = await fetch('/api/admin/upload', {method:'POST', headers:this.auth(), body:fd});
+                        const data = await res.json(); 
+                        if(data.url) this.post.blocks[idx].value = data.url;
+                        else alert('上传失败');
+                    } catch(e) { alert('上传出错'); }
+                    this.isUploading = false;
                 },
 
-                addBlock(type) {
-                    // 默认限制：链接为 true，其他 false
-                    this.post.blocks.push({ type, value: '', locked: type === 'link' });
+                // === 用户管理 (修复后) ===
+                async loadUsers() {
+                    const res = await fetch('/api/admin/users', { headers:this.auth() });
+                    if(res.ok) this.users = await res.json();
                 },
-                resetPost() { this.post = { id: null, title: '', category_id: '', blocks: [], manualDate: '' }; }
+                
+                formatQuota(jsonStr) {
+                    try { 
+                        const o = JSON.parse(jsonStr); 
+                        if(!o) return '';
+                        return `${o.start} 至 ${o.end} : 每日${o.limit}次`; 
+                    } catch(e){return '配置错误';}
+                },
+
+                async editQuota(u) {
+                    const limit = prompt(`为用户 ${u.username} 设置临时每日次数 (例如 20):`, 20);
+                    if(!limit) return;
+                    
+                    const today = new Date().toISOString().split('T')[0];
+                    const start = prompt('开始日期 (YYYY-MM-DD):', today);
+                    if(!start) return;
+                    
+                    const nextDay = new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0];
+                    const end = prompt('结束日期 (YYYY-MM-DD):', nextDay);
+                    if(!end) return;
+
+                    const config = { start, end, limit: parseInt(limit) };
+                    const res = await fetch('/api/admin/user/quota', { 
+                        method:'POST', 
+                        headers:this.auth(), 
+                        body:JSON.stringify({ userId:u.id, config }) 
+                    });
+                    
+                    if(res.ok) {
+                        alert('设置成功');
+                        this.loadUsers();
+                    } else alert('设置失败');
+                },
+
+                // === 分类管理 ===
+                async manageCat(action, id) {
+                    if(action==='add' && !this.newCat) return;
+                    if(action==='del' && !confirm('确定删除该分类吗?')) return;
+                    await fetch('/api/admin/category', { method:'POST', headers:this.auth(), body:JSON.stringify({action, name:this.newCat, id})});
+                    this.newCat = ''; this.loadCats();
+                }
             }
         }
     </script>
