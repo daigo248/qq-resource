@@ -50,7 +50,7 @@ async function syncUserQuota(env, user, todayStr) {
 
 // ================= API 路由 =================
 
-// 1-4. 认证相关 (保持不变)
+// 1. 发送验证码
 app.post('/auth/send-code', async (c) => {
   const { email, type } = await c.req.json();
   if (!/^[1-9][0-9]{4,}@qq\.com$/.test(email)) return c.json({ error: '仅支持QQ邮箱' }, 400);
@@ -63,6 +63,8 @@ app.post('/auth/send-code', async (c) => {
   await sendEmail(c.env, email, `【蓝鲸小站】验证码`, `<p>验证码: <b>${code}</b></p>`);
   return c.json({ success: true });
 });
+
+// 2. 注册
 app.post('/auth/register', async (c) => {
   const { email, code, username, password } = await c.req.json();
   const rec = await c.env.DB.prepare('SELECT * FROM codes WHERE email = ? AND type = "register"').bind(email).first();
@@ -73,6 +75,8 @@ app.post('/auth/register', async (c) => {
   const token = await signToken({ id: res.id, role: 'user' }, c.env.JWT_SECRET);
   return c.json({ token, user: res });
 });
+
+// 3. 登录
 app.post('/auth/login', async (c) => {
   const { loginId, password, isAdmin } = await c.req.json();
   if (isAdmin) {
@@ -86,6 +90,8 @@ app.post('/auth/login', async (c) => {
   const token = await signToken({ id: user.id, role: 'user' }, c.env.JWT_SECRET);
   return c.json({ token, user });
 });
+
+// 4. 重置密码
 app.post('/auth/reset-password', async (c) => {
   const { email, code, newPassword } = await c.req.json();
   const rec = await c.env.DB.prepare('SELECT * FROM codes WHERE email = ? AND type = "reset"').bind(email).first();
@@ -94,7 +100,7 @@ app.post('/auth/reset-password', async (c) => {
   return c.json({ success: true });
 });
 
-// 5-8. 资源相关 (保持不变)
+// 5. 获取公共首页
 app.get('/public/home', async (c) => {
   const q = c.req.query('q');
   const categories = await c.env.DB.prepare('SELECT * FROM categories ORDER BY sort_order').all();
@@ -115,6 +121,8 @@ app.get('/public/home', async (c) => {
   });
   return c.json({ categories: categories.results, resources: safeResources });
 });
+
+// 6. 获取用户信息
 app.get('/user/info', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const payload = await verifyToken(token, c.env.JWT_SECRET);
@@ -127,6 +135,8 @@ app.get('/user/info', async (c) => {
   if (user.temp_quota_config) { try { const conf = JSON.parse(user.temp_quota_config); if (today >= conf.start && today <= conf.end) finalLimit = conf.limit; } catch(e) {} }
   return c.json({ user: { id: user.id, username: user.username, email: user.email }, quota: { total: finalLimit, used: used, remaining: Math.max(0, finalLimit - used) } });
 });
+
+// 7. 解锁内容
 app.post('/resource/unlock', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const payload = await verifyToken(token, c.env.JWT_SECRET);
@@ -149,6 +159,8 @@ app.post('/resource/unlock', async (c) => {
   const res = await c.env.DB.prepare('SELECT content_json FROM resources WHERE id = ?').bind(resourceId).first();
   return c.json({ realValue: JSON.parse(res.content_json)[blockIndex].value });
 });
+
+// 8. 评论与点赞
 app.post('/resource/comment', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
@@ -172,9 +184,9 @@ app.post('/resource/like', async (c) => {
   return c.json({ success: true });
 });
 
-// === 9. 私信功能 (大幅升级) ===
+// === 9. 私信功能 (双向回复完善版) ===
 
-// 用户: 发送消息给管理员 (sender='user')
+// 用户发送
 app.post('/user/message/send', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
@@ -185,7 +197,7 @@ app.post('/user/message/send', async (c) => {
   return c.json({ success: true });
 });
 
-// 用户: 获取自己的聊天记录 (包括管理员回复)
+// 用户获取列表 (含 sender 区分)
 app.get('/user/messages', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
@@ -194,13 +206,12 @@ app.get('/user/messages', async (c) => {
   return c.json(msgs.results);
 });
 
-// 管理员: 获取有私信往来的用户列表 (收件箱列表)
+// 管理员获取收件箱
 app.get('/admin/inbox', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
   if (!u || u.role !== 'admin') return c.json({ error: '无权操作' }, 403);
   
-  // 查询所有有过对话的用户，并按最后一条消息时间排序
   const list = await c.env.DB.prepare(`
     SELECT DISTINCT u.id, u.username, u.email,
     (SELECT content FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) as last_msg,
@@ -212,7 +223,7 @@ app.get('/admin/inbox', async (c) => {
   return c.json(list.results);
 });
 
-// 管理员: 获取指定用户的聊天记录
+// 管理员获取某用户对话
 app.get('/admin/messages/:userId', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
@@ -221,17 +232,20 @@ app.get('/admin/messages/:userId', async (c) => {
   return c.json(msgs.results);
 });
 
-// 管理员: 回复用户 (sender='admin')
+// 【关键修复】管理员回复接口 (之前可能被遗漏)
 app.post('/admin/message/reply', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
   if (!u || u.role !== 'admin') return c.json({ error: '无权操作' }, 403);
+  
   const { userId, content } = await c.req.json();
+  if(!content) return c.json({ error: '内容为空' }, 400);
+  
   await c.env.DB.prepare('INSERT INTO messages (user_id, sender, content) VALUES (?, "admin", ?)').bind(userId, content).run();
   return c.json({ success: true });
 });
 
-// === 管理员通用 API (保持不变) ===
+// === 管理员资源管理 API (保持不变) ===
 app.get('/admin/resources', async (c) => {
   const token = c.req.header('Authorization')?.split(' ')[1];
   const u = await verifyToken(token, c.env.JWT_SECRET);
