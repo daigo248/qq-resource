@@ -1,21 +1,8 @@
--- 1-12. 原有表结构保持不变 (users, blacklist, codes, categories, resources, tags, resource_tags, daily_usage, unlocked_items, comments, likes, messages)
--- 为了节省篇幅，请保留之前的 SQL，直接在最后添加以下新表：
+-- 1-13. 原有表结构保持不变 (users, blacklist, codes, categories, resources, tags, resource_tags, daily_usage, unlocked_items, comments, likes, messages)
+-- 请保留之前的 SQL，直接替换最后一张表 tag_keywords：
 
 DROP TABLE IF EXISTS users;
-CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    username TEXT UNIQUE,
-    password_hash TEXT,
-    role TEXT DEFAULT 'user',
-    daily_limit INTEGER DEFAULT 3,
-    is_muted BOOLEAN DEFAULT 0,
-    last_calc_date TEXT,
-    last_unlock_date TEXT,
-    temp_quota_config TEXT,
-    last_reset_at INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, username TEXT UNIQUE, password_hash TEXT, role TEXT DEFAULT 'user', daily_limit INTEGER DEFAULT 3, is_muted BOOLEAN DEFAULT 0, last_calc_date TEXT, last_unlock_date TEXT, temp_quota_config TEXT, last_reset_at INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 DROP TABLE IF EXISTS blacklist;
 CREATE TABLE blacklist (email TEXT PRIMARY KEY, reason TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 DROP TABLE IF EXISTS codes;
@@ -40,11 +27,12 @@ CREATE TABLE likes (user_id INTEGER NOT NULL, resource_id INTEGER NOT NULL, PRIM
 DROP TABLE IF EXISTS messages;
 CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, sender TEXT DEFAULT 'user', content TEXT NOT NULL, is_read BOOLEAN DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 
--- 13. 标签自动关联规则表 (新)
+-- 14. 标签自动关联规则表 (结构变更)
 DROP TABLE IF EXISTS tag_keywords;
 CREATE TABLE tag_keywords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    keyword TEXT NOT NULL UNIQUE, -- 关键词 (如 "张三")
-    tag_name TEXT NOT NULL,       -- 关联的标签名 (如 "张三")
-    tag_type TEXT NOT NULL        -- 关联的标签类型 (如 "艺人")
+    keyword TEXT NOT NULL,        -- 关键词 (不再唯一)
+    tag_name TEXT NOT NULL,       -- 关联的标签名
+    tag_type TEXT NOT NULL,       -- 关联的标签类型
+    UNIQUE(keyword, tag_name, tag_type) -- 联合唯一：允许同个关键词关联不同标签
 );
