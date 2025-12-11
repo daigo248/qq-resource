@@ -1,6 +1,4 @@
--- 前面的表结构保持不变 (users, codes, categories, resources, daily_usage, unlocked_items, comments, likes)
--- 为了节省篇幅，请保留之前的 SQL，只替换最后的 messages 表部分，或者直接全量覆盖如下：
-
+-- 1. 用户表 (新增 is_muted)
 DROP TABLE IF EXISTS users;
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -8,14 +6,24 @@ CREATE TABLE users (
     username TEXT UNIQUE,
     password_hash TEXT,
     role TEXT DEFAULT 'user',
-    daily_limit INTEGER DEFAULT 1,
+    daily_limit INTEGER DEFAULT 3,   -- 默认每天3把钥匙 (对应需求3)
+    is_muted BOOLEAN DEFAULT 0,      -- 是否禁言 (新)
     last_calc_date TEXT,
     last_unlock_date TEXT,
-    temp_quota_config TEXT,
+    temp_quota_config TEXT,          -- {"start":"...","end":"...","limit":10}
     last_reset_at INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2. 黑名单表 (新)
+DROP TABLE IF EXISTS blacklist;
+CREATE TABLE blacklist (
+    email TEXT PRIMARY KEY,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. 验证码表
 DROP TABLE IF EXISTS codes;
 CREATE TABLE codes (
     email TEXT PRIMARY KEY,
@@ -24,6 +32,7 @@ CREATE TABLE codes (
     expires_at INTEGER NOT NULL
 );
 
+-- 4. 分类表
 DROP TABLE IF EXISTS categories;
 CREATE TABLE categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,6 +41,7 @@ CREATE TABLE categories (
 );
 INSERT INTO categories (name) VALUES ('综合'), ('电视剧'), ('综艺'), ('动漫');
 
+-- 5. 资源表
 DROP TABLE IF EXISTS resources;
 CREATE TABLE resources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +52,7 @@ CREATE TABLE resources (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 6. 每日使用计数表
 DROP TABLE IF EXISTS daily_usage;
 CREATE TABLE daily_usage (
     user_id INTEGER NOT NULL,
@@ -50,6 +61,7 @@ CREATE TABLE daily_usage (
     PRIMARY KEY (user_id, date_str)
 );
 
+-- 7. 解锁记录表
 DROP TABLE IF EXISTS unlocked_items;
 CREATE TABLE unlocked_items (
     user_id INTEGER NOT NULL,
@@ -59,6 +71,7 @@ CREATE TABLE unlocked_items (
     PRIMARY KEY (user_id, resource_id, date_str)
 );
 
+-- 8. 评论表
 DROP TABLE IF EXISTS comments;
 CREATE TABLE comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +81,7 @@ CREATE TABLE comments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 9. 点赞表
 DROP TABLE IF EXISTS likes;
 CREATE TABLE likes (
     user_id INTEGER NOT NULL,
@@ -75,12 +89,12 @@ CREATE TABLE likes (
     PRIMARY KEY (user_id, resource_id)
 );
 
--- 9. 私信表 (结构变更)
+-- 10. 私信表
 DROP TABLE IF EXISTS messages;
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,  -- 对话归属的用户ID
-    sender TEXT DEFAULT 'user', -- 'user' 表示用户发给管理员, 'admin' 表示管理员回复用户
+    user_id INTEGER NOT NULL,
+    sender TEXT DEFAULT 'user',
     content TEXT NOT NULL,
     is_read BOOLEAN DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
