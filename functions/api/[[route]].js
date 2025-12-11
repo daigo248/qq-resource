@@ -118,7 +118,7 @@ app.get('/public/home', async (c) => {
   return c.json({ categories: categories.results, resources: safeResources });
 });
 
-// 6. 标签墙
+// 6. 标签墙 (只显示已关联文章的标签)
 app.get('/public/tags', async (c) => {
     const type = c.req.query('type'); if (!type) return c.json([]);
     const res = await c.env.DB.prepare(`SELECT DISTINCT t.* FROM tags t JOIN resource_tags rt ON t.id = rt.tag_id WHERE t.type = ? ORDER BY t.id DESC`).bind(type).all();
@@ -141,30 +141,11 @@ app.post('/user/message/send', async (c) => { const t=c.req.header('Authorizatio
 app.get('/user/messages', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u) return c.json({error:'未登录'},401); const r=await c.env.DB.prepare('SELECT * FROM messages WHERE user_id=? ORDER BY id ASC').bind(u.id).all(); return c.json(r.results); });
 
 // === 管理员 API ===
-app.get('/admin/tag-keywords', async (c) => {
-    const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
-    const res = await c.env.DB.prepare('SELECT * FROM tag_keywords ORDER BY id DESC').all();
-    return c.json(res.results);
-});
-app.post('/admin/tag-keywords', async (c) => {
-    const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
-    const { action, id, keyword, tagName, tagType } = await c.req.json();
-    if (action === 'add') await c.env.DB.prepare('INSERT INTO tag_keywords (keyword, tag_name, tag_type) VALUES (?, ?, ?)').bind(keyword, tagName, tagType).run();
-    else if (action === 'del') await c.env.DB.prepare('DELETE FROM tag_keywords WHERE id = ?').bind(id).run();
-    return c.json({ success: true });
-});
-app.get('/admin/tags/all', async (c) => {
-    const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
-    const res = await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM resource_tags WHERE tag_id = t.id) as post_count FROM tags t ORDER BY post_count DESC`).all();
-    return c.json(res.results);
-});
 
-// 3. 发布资源 (【修正】链接必填校验)
+// 发布/修改资源
 app.post('/admin/resource', async (c) => {
   const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
   const { id, title, category_id, blocks, manualDate, tags } = await c.req.json();
-  
-  // 核心校验：必须包含至少一条非空的链接
   const hasValidLink = blocks.some(b => b.type === 'link' && b.value && b.value.trim() !== '');
   if (!hasValidLink) return c.json({ error: '发布失败：必须包含至少一条有效的链接！' }, 400);
 
@@ -178,17 +159,13 @@ app.post('/admin/resource', async (c) => {
     resourceId = res.id;
   }
 
-  // 自动标签匹配 (支持多标签)
+  // 标签关联
   const rules = await c.env.DB.prepare('SELECT * FROM tag_keywords').all();
   const fullText = title + blocks.filter(b => b.type === 'text').map(b => b.value).join(' ');
   let finalTags = [...(tags || [])];
-  
   for (const rule of rules.results) {
       if (fullText.includes(rule.keyword)) {
-          // 避免重复添加完全相同的标签 (name+type)
-          if (!finalTags.find(ft => ft.name === rule.tag_name && ft.type === rule.tag_type)) {
-              finalTags.push({ name: rule.tag_name, type: rule.tag_type });
-          }
+          if (!finalTags.find(ft => ft.name === rule.tag_name && ft.type === rule.tag_type)) finalTags.push({ name: rule.tag_name, type: rule.tag_type });
       }
   }
 
@@ -207,14 +184,33 @@ app.post('/admin/resource', async (c) => {
           await c.env.DB.prepare('INSERT INTO resource_tags (resource_id, tag_id) VALUES (?, ?)').bind(resourceId, tagId).run();
       }
   }
-  
   return c.json({ success: true });
 });
 
-// 其他管理员 API (保持不变)
+// 【核心修改】删除资源 (同时清理幽灵标签)
+app.post('/admin/resource/delete', async (c) => {
+    const t = c.req.header('Authorization')?.split(' ')[1]; 
+    const u = await verifyToken(t, c.env.JWT_SECRET); 
+    if(!u || u.role !== 'admin') return c.json({error:'无权操作'}, 403);
+    
+    const { id } = await c.req.json();
+    
+    // 1. 删除 资源-标签 关联
+    await c.env.DB.prepare('DELETE FROM resource_tags WHERE resource_id = ?').bind(id).run();
+    // 2. 删除 资源
+    await c.env.DB.prepare('DELETE FROM resources WHERE id = ?').bind(id).run();
+    // 3. 【新】清理没有任何关联的标签
+    await c.env.DB.prepare('DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM resource_tags)').run();
+    
+    return c.json({ success: true });
+});
+
+// 其他管理员 API
+app.get('/admin/tags/all', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const res=await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM resource_tags WHERE tag_id = t.id) as post_count FROM tags t ORDER BY post_count DESC`).all(); return c.json(res.results); });
+app.get('/admin/tag-keywords', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const res=await c.env.DB.prepare('SELECT * FROM tag_keywords ORDER BY id DESC').all(); return c.json(res.results); });
+app.post('/admin/tag-keywords', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {action,id,keyword,tagName,tagType}=await c.req.json(); if(action==='add') await c.env.DB.prepare('INSERT INTO tag_keywords(keyword,tag_name,tag_type) VALUES(?,?,?)').bind(keyword,tagName,tagType).run(); else if(action==='del') await c.env.DB.prepare('DELETE FROM tag_keywords WHERE id=?').bind(id).run(); return c.json({success:true}); });
 app.get('/admin/resource/:id', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare('SELECT * FROM resources WHERE id=?').bind(c.req.param('id')).first(); const tags=await c.env.DB.prepare('SELECT t.name, t.type, t.image_url FROM resource_tags rt JOIN tags t ON rt.tag_id=t.id WHERE rt.resource_id=?').bind(r.id).all(); return c.json({...r, blocks:JSON.parse(r.content_json), tags:tags.results}); });
 app.get('/admin/resources', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const q=c.req.query('q'); const catId=c.req.query('catId'); const tagId=c.req.query('tagId'); let sql='SELECT * FROM resources'; let p=[]; let k=[]; if(q){k.push("title LIKE ?");p.push(`%${q}%`);} if(catId){k.push("category_id=?");p.push(catId);} if(tagId){sql='SELECT r.* FROM resources r JOIN resource_tags rt ON r.id=rt.resource_id WHERE rt.tag_id=?'; p=[tagId];} if(k.length>0 && !tagId) sql+=' WHERE '+k.join(' AND '); sql+=' ORDER BY id DESC LIMIT 50'; const r=await c.env.DB.prepare(sql).bind(...p).all(); return c.json(r.results); });
-app.post('/admin/resource/delete', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); await c.env.DB.prepare('DELETE FROM resources WHERE id=?').bind((await c.req.json()).id).run(); return c.json({success:true}); });
 app.post('/admin/upload', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const b=await c.req.parseBody(); const f=b['file']; if(f&&f.name){ const n=`${Date.now()}-${f.name}`; await c.env.BUCKET.put(n,await f.arrayBuffer(),{httpMetadata:{contentType:f.type}}); return c.json({url:`${c.env.R2_DOMAIN}/${n}`}); } return c.json({error:'无效'},400); });
 app.post('/admin/category', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {action,name,id}=await c.req.json(); if(action==='add') await c.env.DB.prepare('INSERT INTO categories(name) VALUES(?)').bind(name).run(); if(action==='del') await c.env.DB.prepare('DELETE FROM categories WHERE id=?').bind(id).run(); return c.json({success:true}); });
 app.post('/admin/users/batch', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {userIds,action}=await c.req.json(); const ph=userIds.map(()=>'?').join(','); if(action==='mute') await c.env.DB.prepare(`UPDATE users SET is_muted=1 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='unmute') await c.env.DB.prepare(`UPDATE users SET is_muted=0 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='delete') await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='ban'){ const us=await c.env.DB.prepare(`SELECT email FROM users WHERE id IN (${ph})`).bind(...userIds).all(); for(const x of us.results) await c.env.DB.prepare('INSERT OR IGNORE INTO blacklist (email,reason) VALUES (?, "批量")').bind(x.email).run(); await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); } return c.json({success:true}); });
