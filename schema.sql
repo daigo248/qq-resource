@@ -1,4 +1,4 @@
--- 1. 用户表 (新增 is_muted)
+-- 1. 用户表
 DROP TABLE IF EXISTS users;
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6,16 +6,16 @@ CREATE TABLE users (
     username TEXT UNIQUE,
     password_hash TEXT,
     role TEXT DEFAULT 'user',
-    daily_limit INTEGER DEFAULT 3,   -- 默认每天3把钥匙 (对应需求3)
-    is_muted BOOLEAN DEFAULT 0,      -- 是否禁言 (新)
+    daily_limit INTEGER DEFAULT 3,
+    is_muted BOOLEAN DEFAULT 0,
     last_calc_date TEXT,
     last_unlock_date TEXT,
-    temp_quota_config TEXT,          -- {"start":"...","end":"...","limit":10}
+    temp_quota_config TEXT,
     last_reset_at INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. 黑名单表 (新)
+-- 2. 黑名单表
 DROP TABLE IF EXISTS blacklist;
 CREATE TABLE blacklist (
     email TEXT PRIMARY KEY,
@@ -32,7 +32,7 @@ CREATE TABLE codes (
     expires_at INTEGER NOT NULL
 );
 
--- 4. 分类表
+-- 4. 分类表 (原有)
 DROP TABLE IF EXISTS categories;
 CREATE TABLE categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +52,26 @@ CREATE TABLE resources (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. 每日使用计数表
+-- 6. 标签表 (新)
+-- type: '番组' 或 '艺人'
+DROP TABLE IF EXISTS tags;
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL, -- 标签值
+    type TEXT NOT NULL, -- 标签种类
+    image_url TEXT,     -- 标签图片
+    UNIQUE(name, type)
+);
+
+-- 7. 资源-标签关联表 (新)
+DROP TABLE IF EXISTS resource_tags;
+CREATE TABLE resource_tags (
+    resource_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (resource_id, tag_id)
+);
+
+-- 8. 每日计数表
 DROP TABLE IF EXISTS daily_usage;
 CREATE TABLE daily_usage (
     user_id INTEGER NOT NULL,
@@ -61,7 +80,7 @@ CREATE TABLE daily_usage (
     PRIMARY KEY (user_id, date_str)
 );
 
--- 7. 解锁记录表
+-- 9. 解锁记录表
 DROP TABLE IF EXISTS unlocked_items;
 CREATE TABLE unlocked_items (
     user_id INTEGER NOT NULL,
@@ -71,7 +90,7 @@ CREATE TABLE unlocked_items (
     PRIMARY KEY (user_id, resource_id, date_str)
 );
 
--- 8. 评论表
+-- 10. 评论表
 DROP TABLE IF EXISTS comments;
 CREATE TABLE comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +100,7 @@ CREATE TABLE comments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. 点赞表
+-- 11. 点赞表
 DROP TABLE IF EXISTS likes;
 CREATE TABLE likes (
     user_id INTEGER NOT NULL,
@@ -89,7 +108,7 @@ CREATE TABLE likes (
     PRIMARY KEY (user_id, resource_id)
 );
 
--- 10. 私信表
+-- 12. 私信表
 DROP TABLE IF EXISTS messages;
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
