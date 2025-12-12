@@ -36,3 +36,26 @@ CREATE TABLE tag_keywords (
     tag_type TEXT NOT NULL,       -- 关联的标签类型
     UNIQUE(keyword, tag_name, tag_type) -- 联合唯一：允许同个关键词关联不同标签
 );
+-- 原有表结构保持不变...
+-- 为了方便，请直接在文件末尾添加或替换以下内容：
+
+-- 1-14 表结构保持不变...
+-- (users, blacklist, codes, categories, resources, tags, resource_tags, daily_usage, unlocked_items, comments, likes, messages, tag_keywords)
+
+-- ... (保留上面所有的 CREATE TABLE 语句) ...
+
+-- 15. 【新】API 速率限制表 (用于防刷)
+DROP TABLE IF EXISTS rate_limits;
+CREATE TABLE rate_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identifier TEXT NOT NULL, -- 邮箱或IP
+    endpoint TEXT NOT NULL,   -- 接口名 (如 send-code)
+    created_at INTEGER NOT NULL
+);
+
+-- 16. 【新】搜索性能优化索引 (不存数据，只加速查询)
+-- 给标题、日期、标签名加索引，加速 LIKE 查询和 JOIN
+CREATE INDEX IF NOT EXISTS idx_resources_title ON resources(title);
+CREATE INDEX IF NOT EXISTS idx_resources_date ON resources(custom_date);
+CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, is_read);
