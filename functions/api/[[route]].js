@@ -27,13 +27,47 @@ async function sendEmail(env, to, subject, html) {
     body: JSON.stringify({ sender: { email: env.SENDER_EMAIL, name: "蓝鲸小站" }, to: [{ email: to }], subject, htmlContent: html })
   });
 }
+
+// === 【升级】日期自动识别逻辑 ===
 function parseDateFromTitle(title) {
-  const r1 = /(\d{4})年(\d{1,2})月(\d{1,2})日/; const r2 = /(20\d{2})(\d{2})(\d{2})/; const r3 = /(\d{4})年/;
-  let m = title.match(r1); if (m) return `${m[1]}年${m[2]}月${m[3]}日`;
-  m = title.match(r2); if (m) return `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`;
-  m = title.match(r3); if (m) return `${m[1]}年`;
+  // 辅助：处理2位年份 (00-69 -> 20xx, 70-99 -> 19xx)
+  const fixYear = (yy) => {
+      const y = parseInt(yy);
+      return y < 70 ? `20${yy}` : `19${yy}`;
+  };
+
+  // 1. 标准格式: 2025年12月8日 / 2025年3月08日
+  let m = title.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if (m) return `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+
+  // 2. 点号分隔: 1997.11.01 (YYYY.MM.DD)
+  m = title.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+  if (m) return `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+  
+  // 3. 点号分隔短年份: 97.11.01 (YY.MM.DD)
+  m = title.match(/(?<!\d)(\d{2})\.(\d{1,2})\.(\d{1,2})(?!\d)/);
+  if (m) return `${fixYear(m[1])}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+
+  // 4. 点号分隔仅月: 1997.02 (YYYY.MM)
+  m = title.match(/(\d{4})\.(\d{1,2})(?!\.\d)/); // 后面不能跟点数字
+  if (m) return `${m[1]}年${parseInt(m[2])}月`;
+
+  // 5. 纯数字: 20241203 (YYYYMMDD)
+  m = title.match(/(20\d{2})(\d{2})(\d{2})/); 
+  if (m) return `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+
+  // 6. 纯数字短格式: 050111 (YYMMDD) -> 需排除像 1080p 这样的数字
+  // 逻辑：6位数字，且月份01-12，日期01-31
+  m = title.match(/(?<!\d)(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
+  if (m) return `${fixYear(m[1])}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+
+  // 7. 仅年份: 2024年
+  m = title.match(/(\d{4})年/);
+  if (m) return `${m[1]}年`;
+
   return "";
 }
+
 async function syncUserQuota(env, user, todayStr) {
   if (user.last_calc_date === todayStr) return user;
   let newLimit = 1; 
@@ -48,7 +82,7 @@ async function syncUserQuota(env, user, todayStr) {
 
 // ================= API 路由 =================
 
-// 1-4. 认证 (保持不变)
+// 1. 认证 (保持不变)
 app.post('/auth/send-code', async (c) => {
   const { email, type } = await c.req.json();
   if (!/^[1-9][0-9]{4,}@qq\.com$/.test(email)) return c.json({ error: '仅支持QQ邮箱' }, 400);
@@ -92,15 +126,17 @@ app.post('/auth/reset-password', async (c) => {
   return c.json({ success: true });
 });
 
-// 5. 【升级】获取公共首页 (支持 标题 OR 日期 OR 标签值 搜索)
+// 5. 【核心升级】获取公共首页 (支持分页)
 app.get('/public/home', async (c) => {
   const q = c.req.query('q');
   const tagId = c.req.query('tagId');
   const catId = c.req.query('catId');
+  const page = parseInt(c.req.query('page') || '1'); // 页码
+  const pageSize = 25; // 每页数量
+  const offset = (page - 1) * pageSize;
 
   const categories = await c.env.DB.prepare('SELECT * FROM categories ORDER BY sort_order').all();
   
-  // 核心修改：增加了 LEFT JOIN tags t，并在 WHERE 中增加了 OR t.name LIKE ?
   let sql = `SELECT DISTINCT r.id, r.title, r.category_id, r.content_json, r.custom_date, r.created_at, c.name as category_name, 
              (SELECT COUNT(*) FROM comments WHERE resource_id = r.id) as comment_count,
              (SELECT COUNT(*) FROM likes WHERE resource_id = r.id) as like_count
@@ -113,7 +149,6 @@ app.get('/public/home', async (c) => {
   let params = [];
 
   if (q) { 
-      // 搜索：标题 或 自定义日期 或 标签名
       conditions.push('(r.title LIKE ? OR r.custom_date LIKE ? OR t.name LIKE ?)'); 
       params.push(`%${q}%`, `%${q}%`, `%${q}%`); 
   }
@@ -121,7 +156,10 @@ app.get('/public/home', async (c) => {
   if (tagId) { conditions.push('rt.tag_id = ?'); params.push(tagId); }
 
   if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ` ORDER BY r.id DESC LIMIT 100`;
+  
+  // 分页查询
+  sql += ` ORDER BY r.id DESC LIMIT ? OFFSET ?`;
+  params.push(pageSize, offset);
 
   const resources = await c.env.DB.prepare(sql).bind(...params).all();
 
@@ -149,7 +187,12 @@ app.get('/public/home', async (c) => {
     return { ...r, content: safeContent, tags: resTagsMap[r.id] || [] };
   });
 
-  return c.json({ categories: categories.results, resources: safeResources });
+  // 如果请求的是第一页，返回分类信息，否则只返回资源
+  return c.json({ 
+      categories: page === 1 ? categories.results : [], 
+      resources: safeResources,
+      hasMore: safeResources.length === pageSize 
+  });
 });
 
 // 6. 标签墙
@@ -178,8 +221,6 @@ app.post('/user/message/send', async (c) => { const t = c.req.header('Authorizat
 app.get('/user/messages', async (c) => { const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if (!u) return c.json({error:'未登录'},401); const r = await c.env.DB.prepare('SELECT * FROM messages WHERE user_id=? ORDER BY id ASC').bind(u.id).all(); return c.json(r.results); });
 
 // === 管理员 API ===
-
-// 自动关联
 app.get('/admin/tag-keywords', async (c) => {
     const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
     const res = await c.env.DB.prepare('SELECT * FROM tag_keywords ORDER BY id DESC').all();
@@ -192,8 +233,6 @@ app.post('/admin/tag-keywords', async (c) => {
     else if (action === 'del') await c.env.DB.prepare('DELETE FROM tag_keywords WHERE id = ?').bind(id).run();
     return c.json({ success: true });
 });
-
-// 标签列表
 app.get('/admin/tags/all', async (c) => {
     const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
     const res = await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM resource_tags WHERE tag_id = t.id) as post_count FROM tags t ORDER BY post_count DESC`).all();
@@ -206,7 +245,6 @@ app.post('/admin/tag/update', async (c) => {
     catch (e) { return c.json({ error: '更新失败' }, 400); }
 });
 
-// 发布/修改资源
 app.post('/admin/resource', async (c) => {
   const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403);
   const { id, title, category_id, blocks, manualDate, tags } = await c.req.json();
@@ -252,11 +290,8 @@ app.post('/admin/resource', async (c) => {
   return c.json({ success: true });
 });
 
-// 删除资源
 app.post('/admin/resource/delete', async (c) => {
-    const t = c.req.header('Authorization')?.split(' ')[1]; 
-    const u = await verifyToken(t, c.env.JWT_SECRET); 
-    if(!u || u.role !== 'admin') return c.json({error:'无权操作'}, 403);
+    const t = c.req.header('Authorization')?.split(' ')[1]; const u = await verifyToken(t, c.env.JWT_SECRET); if(!u || u.role !== 'admin') return c.json({error:'无权操作'}, 403);
     const { id } = await c.req.json();
     await c.env.DB.prepare('DELETE FROM resource_tags WHERE resource_id = ?').bind(id).run();
     await c.env.DB.prepare('DELETE FROM resources WHERE id = ?').bind(id).run();
@@ -264,22 +299,8 @@ app.post('/admin/resource/delete', async (c) => {
     return c.json({ success: true });
 });
 
-// 其他管理员 API (【升级】支持标签名搜索)
 app.get('/admin/resource/:id', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare('SELECT * FROM resources WHERE id=?').bind(c.req.param('id')).first(); const tags=await c.env.DB.prepare('SELECT t.name, t.type, t.image_url FROM resource_tags rt JOIN tags t ON rt.tag_id=t.id WHERE rt.resource_id=?').bind(r.id).all(); return c.json({...r, blocks:JSON.parse(r.content_json), tags:tags.results}); });
-app.get('/admin/resources', async (c) => { 
-    const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); 
-    const q=c.req.query('q'); const catId=c.req.query('catId'); const tagId=c.req.query('tagId'); 
-    let sql='SELECT DISTINCT r.* FROM resources r LEFT JOIN resource_tags rt ON r.id = rt.resource_id LEFT JOIN tags t ON rt.tag_id = t.id'; 
-    let p=[]; let k=[]; 
-    // 搜索逻辑升级：支持标题或标签名
-    if(q){k.push("(r.title LIKE ? OR t.name LIKE ?)");p.push(`%${q}%`, `%${q}%`);} 
-    if(catId){k.push("r.category_id=?");p.push(catId);} 
-    if(tagId){k.push("rt.tag_id=?");p.push(tagId);} 
-    if(k.length>0) sql+=' WHERE '+k.join(' AND '); 
-    sql+=' ORDER BY r.id DESC LIMIT 50'; 
-    const r=await c.env.DB.prepare(sql).bind(...p).all(); 
-    return c.json(r.results); 
-});
+app.get('/admin/resources', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const q=c.req.query('q'); const catId=c.req.query('catId'); const tagId=c.req.query('tagId'); let sql='SELECT DISTINCT r.* FROM resources r LEFT JOIN resource_tags rt ON r.id = rt.resource_id LEFT JOIN tags t ON rt.tag_id = t.id'; let p=[]; let k=[]; if(q){k.push("(r.title LIKE ? OR t.name LIKE ?)");p.push(`%${q}%`, `%${q}%`);} if(catId){k.push("r.category_id=?");p.push(catId);} if(tagId){k.push("rt.tag_id=?");p.push(tagId);} if(k.length>0) sql+=' WHERE '+k.join(' AND '); sql+=' ORDER BY r.id DESC LIMIT 50'; const r=await c.env.DB.prepare(sql).bind(...p).all(); return c.json(r.results); });
 app.post('/admin/upload', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const b=await c.req.parseBody(); const f=b['file']; if(f&&f.name){ const n=`${Date.now()}-${f.name}`; await c.env.BUCKET.put(n,await f.arrayBuffer(),{httpMetadata:{contentType:f.type}}); return c.json({url:`${c.env.R2_DOMAIN}/${n}`}); } return c.json({error:'无效'},400); });
 app.post('/admin/category', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {action,name,id}=await c.req.json(); if(action==='add') await c.env.DB.prepare('INSERT INTO categories(name) VALUES(?)').bind(name).run(); if(action==='del') await c.env.DB.prepare('DELETE FROM categories WHERE id=?').bind(id).run(); return c.json({success:true}); });
 app.post('/admin/users/batch', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {userIds,action}=await c.req.json(); const ph=userIds.map(()=>'?').join(','); if(action==='mute') await c.env.DB.prepare(`UPDATE users SET is_muted=1 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='unmute') await c.env.DB.prepare(`UPDATE users SET is_muted=0 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='delete') await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='ban'){ const us=await c.env.DB.prepare(`SELECT email FROM users WHERE id IN (${ph})`).bind(...userIds).all(); for(const x of us.results) await c.env.DB.prepare('INSERT OR IGNORE INTO blacklist (email,reason) VALUES (?, "批量")').bind(x.email).run(); await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); } return c.json({success:true}); });
