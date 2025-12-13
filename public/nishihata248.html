@@ -8,11 +8,19 @@
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
 <body class="bg-gray-100" x-data="admin()">
+    <!-- 登录界面 -->
     <div x-show="!token" class="min-h-screen flex items-center justify-center">
-        <div class="bg-white p-8 rounded shadow w-96"><h1 class="font-bold mb-4">登录</h1><input type="text" x-model="loginForm.loginId" class="w-full border p-2 mb-2"><input type="password" x-model="loginForm.password" class="w-full border p-2 mb-4"><button @click="login" class="w-full bg-blue-600 text-white py-2 rounded">Login</button></div>
+        <div class="bg-white p-8 rounded shadow w-96">
+            <h1 class="font-bold mb-4">登录</h1>
+            <input type="text" x-model="loginForm.loginId" class="w-full border p-2 mb-2" placeholder="账号">
+            <input type="password" x-model="loginForm.password" class="w-full border p-2 mb-4" placeholder="密码">
+            <button @click="login" class="w-full bg-blue-600 text-white py-2 rounded">Login</button>
+        </div>
     </div>
 
+    <!-- 主界面 -->
     <div x-show="token" class="min-h-screen flex flex-col h-screen" x-cloak>
+        <!-- 顶部导航栏 -->
         <nav class="bg-slate-800 text-white p-4 shrink-0 flex justify-between items-center">
             <span class="font-bold mr-4">🐋 蓝鲸管理</span>
             <div class="space-x-1 text-sm flex items-center">
@@ -21,25 +29,40 @@
                 <button @click="switchTab('tags')" :class="tab==='tags'?'text-blue-300':''">标签</button>
                 <button @click="switchTab('keywords')" :class="tab==='keywords'?'text-blue-300':''">关联</button>
                 <button @click="switchTab('users')" :class="tab==='users'?'text-blue-300':''">用户</button>
-                <button @click="switchTab('msgs')" :class="tab==='msgs'?'text-blue-300':''" class="relative">私信<span x-show="totalUnread>0" class="absolute -top-1 -right-2 bg-red-500 text-[8px] px-1 rounded-full" x-text="totalUnread"></span></button>
+                <button @click="switchTab('msgs')" :class="tab==='msgs'?'text-blue-300':''" class="relative">
+                    私信 <span x-show="totalUnread>0" class="absolute -top-1 -right-2 bg-red-500 text-[8px] px-1 rounded-full" x-text="totalUnread"></span>
+                </button>
                 <button @click="switchTab('cats')" :class="tab==='cats'?'text-blue-300':''">分类</button>
+                
                 <div class="w-px h-4 bg-slate-600 mx-2"></div>
-                <button @click="backupData" class="text-green-400">备份</button>
-                <button @click="triggerRestore" class="text-red-400 ml-2">恢复</button>
+                
+                <!-- 备份与恢复按钮区域 -->
+                <button @click="backupData" class="text-green-400 font-bold hover:underline">备份</button>
+                <button @click="triggerRestore" class="text-red-400 font-bold ml-3 hover:underline">恢复</button>
+                
                 <button @click="logout" class="text-gray-400 ml-4">退出</button>
             </div>
         </nav>
 
         <main class="flex-1 overflow-hidden p-6">
+            
             <!-- 1. 发布/编辑 -->
             <div x-show="tab === 'post'" class="bg-white p-6 rounded shadow h-full overflow-y-auto">
                 <div class="space-y-4 max-w-4xl mx-auto">
                     <h2 class="text-lg font-bold" x-text="isEdit?'修改':'发布'"></h2>
                     <input type="text" x-model="post.title" placeholder="标题" class="w-full border p-2 rounded">
                     <div class="flex gap-4"><select x-model="post.category_id" class="border p-2 rounded flex-1"><option value="">分类...</option><template x-for="c in categories" :key="c.id"><option :value="c.id" x-text="c.name"></option></template></select><input type="text" x-model="post.manualDate" placeholder="日期" class="border p-2 rounded flex-1"></div>
-                    <div class="border p-4 rounded bg-blue-50"><h3 class="text-sm font-bold text-gray-700 mb-2">🏷️ 标签</h3><div class="space-y-2"><template x-for="(t, idx) in post.tags" :key="idx"><div class="flex gap-2 items-center bg-white p-2 rounded border"><select x-model="t.type" class="border p-1 rounded text-xs"><option value="番组">番组</option><option value="艺人">艺人</option></select><input type="text" x-model="t.name" @blur="autoFillTagImg(idx)" placeholder="标签名" class="border p-1 rounded text-sm flex-1"><input type="text" x-model="t.image_url" placeholder="图片URL" class="border p-1 rounded text-xs w-1/3"><button @click="post.tags.splice(idx,1)" class="text-red-500">✕</button></div></template><button @click="post.tags.push({type:'番组',name:'',image_url:''})" class="text-xs bg-blue-200 px-2 rounded">+标签</button></div></div>
-                    <div class="border rounded p-4 bg-gray-50 space-y-2"><template x-for="(block, idx) in post.blocks" :key="idx"><div class="flex gap-2 items-center bg-white p-2 rounded border"><span x-text="idx+1" class="text-xs text-gray-400"></span><select x-model="block.type" class="border text-sm p-1 rounded"><option value="text">文本</option><option value="link">链接</option><option value="image">图片</option></select><div class="flex-1 space-y-1"><input type="text" x-model="block.value" class="w-full border p-1 rounded text-sm"><div x-show="block.type==='link'" class="flex gap-2 text-xs"><select x-model="block.linkType" class="border p-1 rounded"><option value="夸克">夸克</option><option value="百度">百度</option><option value="其他">其他</option></select><input x-show="block.linkType==='其他'" type="text" x-model="block.customLinkType" placeholder="类型" class="border p-1 rounded w-20"></div><input x-show="block.type==='image'" type="file" @change="uploadImg($event, idx)" class="text-xs"></div><label class="flex items-center gap-1 text-xs bg-gray-100 p-1 rounded"><input type="checkbox" x-model="block.locked">🔒</label><button @click="post.blocks.splice(idx,1)" class="text-red-500">✕</button></div></template><div class="flex gap-2"><button @click="addBlock('text')" class="text-xs bg-gray-200 px-2 rounded">+文</button><button @click="addBlock('link')" class="text-xs bg-gray-200 px-2 rounded">+链</button><button @click="addBlock('image')" class="text-xs bg-gray-200 px-2 rounded">+图</button></div></div>
-                    <button @click="publish" class="w-full bg-blue-600 text-white py-2 rounded">提交</button>
+                    
+                    <div class="border p-4 rounded bg-blue-50">
+                        <h3 class="text-sm font-bold text-gray-700 mb-2">🏷️ 标签 (自动关联)</h3>
+                        <div class="space-y-2"><template x-for="(t, idx) in post.tags" :key="idx"><div class="flex gap-2 items-center bg-white p-2 rounded border"><select x-model="t.type" class="border p-1 rounded text-xs"><option value="番组">番组</option><option value="艺人">艺人</option></select><input type="text" x-model="t.name" @blur="autoFillTagImg(idx)" placeholder="标签名" class="border p-1 rounded text-sm flex-1"><input type="text" x-model="t.image_url" placeholder="图片URL" class="border p-1 rounded text-xs w-1/3"><button @click="post.tags.splice(idx,1)" class="text-red-500">✕</button></div></template><button @click="post.tags.push({type:'番组',name:'',image_url:''})" class="text-xs bg-blue-200 px-2 rounded">+标签</button></div>
+                    </div>
+
+                    <div class="border rounded p-4 bg-gray-50 space-y-2">
+                        <template x-for="(block, idx) in post.blocks" :key="idx"><div class="flex gap-2 items-center bg-white p-2 rounded border"><span x-text="idx+1" class="text-xs text-gray-400"></span><select x-model="block.type" class="border text-sm p-1 rounded"><option value="text">文本</option><option value="link">链接</option><option value="image">图片</option></select><div class="flex-1 space-y-1"><input type="text" x-model="block.value" class="w-full border p-1 rounded text-sm"><div x-show="block.type==='link'" class="flex gap-2 text-xs"><select x-model="block.linkType" class="border p-1 rounded"><option value="夸克">夸克</option><option value="百度">百度</option><option value="其他">其他</option></select><input x-show="block.linkType==='其他'" type="text" x-model="block.customLinkType" placeholder="类型" class="border p-1 rounded w-20"></div><input x-show="block.type==='image'" type="file" @change="uploadImg($event, idx)" class="text-xs"></div><label class="flex items-center gap-1 text-xs bg-gray-100 p-1 rounded"><input type="checkbox" x-model="block.locked">🔒</label><button @click="post.blocks.splice(idx,1)" class="text-red-500">✕</button></div></template>
+                        <div class="flex gap-2"><button @click="addBlock('text')" class="text-xs bg-gray-200 px-2 rounded">+文</button><button @click="addBlock('link')" class="text-xs bg-gray-200 px-2 rounded">+链</button><button @click="addBlock('image')" class="text-xs bg-gray-200 px-2 rounded">+图</button></div>
+                    </div>
+                    <button @click="publish" class="w-full bg-blue-600 text-white py-2 rounded">提交 (至少一条链接)</button>
                 </div>
             </div>
 
@@ -50,12 +73,12 @@
                 <div class="flex justify-center gap-4 mt-4 text-sm items-center"><button @click="prevPage" :disabled="page===1" class="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">上一页</button><span>第 <span x-text="page"></span> 页</span><button @click="nextPage" class="px-3 py-1 bg-gray-200 rounded">下一页</button></div>
             </div>
 
-            <!-- 3. 标签管理 (增强) -->
+            <!-- 3. 标签管理 -->
             <div x-show="tab === 'tags'" class="bg-white p-6 rounded shadow h-full overflow-y-auto">
                 <div x-show="editingTag" class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
-                    <h3 class="font-bold text-yellow-700 mb-2">✏️ 编辑标签 (支持改名合并)</h3>
+                    <h3 class="font-bold text-yellow-700 mb-2">✏️ 编辑标签</h3>
                     <div class="flex gap-2 items-center mb-2"><select x-model="editingTag.type" class="border p-2 rounded text-sm"><option value="番组">番组</option><option value="艺人">艺人</option></select><input type="text" x-model="editingTag.name" class="border p-2 rounded text-sm flex-1"><input type="text" x-model="editingTag.image_url" class="border p-2 rounded text-sm flex-1"><div class="relative"><input type="file" @change="uploadTagImg" class="absolute inset-0 opacity-0 cursor-pointer"><button class="bg-gray-200 px-3 py-2 rounded text-sm border">上传图</button></div></div>
-                    <div class="text-xs text-gray-500 mb-2">如果修改后的名称已存在，会自动合并到现有标签并清理重复。</div>
+                    <div class="text-xs text-gray-500 mb-2">提示：如果修改后的名称已存在，会自动合并到现有标签并清理重复。</div>
                     <div class="flex gap-2"><button @click="updateTag" class="bg-blue-600 text-white px-4 py-1 rounded text-sm">保存</button><button @click="editingTag=null; tagPosts=[]" class="text-gray-500 text-sm">取消</button></div>
                 </div>
                 <div class="flex justify-between items-center mb-6"><h2 class="text-lg font-bold">标签列表</h2></div>
@@ -95,7 +118,6 @@
                 async login() { const res = await fetch('/api/auth/login', {method:'POST', body:JSON.stringify({...this.loginForm, isAdmin:true})}); const data = await res.json(); if(res.ok) { this.token = data.token; localStorage.setItem('adm_token', data.token); location.reload(); } else alert(data.error); },
                 logout() { this.token=''; localStorage.removeItem('adm_token'); location.reload(); },
                 auth() { return {'Authorization': `Bearer ${this.token}`}; },
-                
                 switchTab(t) { 
                     this.tab = t; 
                     if(t==='post') this.resetPost(); 
@@ -106,7 +128,7 @@
                     if(t==='msgs') this.loadInbox();
                 },
 
-                // 资源逻辑
+                // 资源
                 async loadCats() { this.categories = (await (await fetch('/api/public/home')).json()).categories; },
                 async loadResources() { 
                     let url = `/api/admin/resources?page=${this.page}&q=${this.searchQ}`; 
@@ -116,7 +138,6 @@
                 },
                 prevPage() { if(this.page>1){ this.page--; this.loadResources(); } },
                 nextPage() { this.page++; this.loadResources(); },
-
                 getCatName(id) { const c = this.categories.find(cat => cat.id == id); return c ? c.name : '未分类'; },
                 async editResource(id) { const res = await fetch(`/api/admin/resource/${id}`, {headers:this.auth()}); const data = await res.json(); this.post={id:data.id, title:data.title, category_id:data.category_id, blocks:JSON.parse(data.content_json||'[]'), manualDate:data.custom_date, tags:data.tags||[]}; if(this.post.tags.length===0) this.post.tags.push({type:'番组',name:'',image_url:''}); this.isEdit=true; this.tab='post'; },
                 async publish() { 
@@ -131,13 +152,7 @@
                 
                 async loadAllTags() { const res = await fetch('/api/admin/tags/all', {headers:this.auth()}); this.allTags = await res.json(); this.tagPosts = []; this.editingTag = null; },
                 async loadTagPosts(t) { this.editingTag = JSON.parse(JSON.stringify(t)); const res = await fetch(`/api/admin/resources?tagId=${t.id}`, {headers:this.auth()}); this.tagPosts = await res.json(); },
-                async updateTag() { 
-                    if(!this.editingTag) return; 
-                    if(!this.editingTag.name) return alert('必填'); 
-                    const res = await fetch('/api/admin/tag/update', {method:'POST', headers:this.auth(), body:JSON.stringify(this.editingTag)}); 
-                    const data = await res.json();
-                    if(res.ok) { alert(data.message || '成功'); this.loadAllTags(); } else alert(data.error); 
-                },
+                async updateTag() { if(!this.editingTag) return; if(!this.editingTag.name) return alert('必填'); const res = await fetch('/api/admin/tag/update', {method:'POST', headers:this.auth(), body:JSON.stringify(this.editingTag)}); const data = await res.json(); if(res.ok) { alert(data.message || '成功'); this.loadAllTags(); } else alert(data.error); },
                 async uploadTagImg(e) { const f = e.target.files[0]; if(!f) return; const fd = new FormData(); fd.append('file', f); try { const res = await fetch('/api/admin/upload', {method:'POST', headers:this.auth(), body:fd}); const d = await res.json(); if(d.url) this.editingTag.image_url = d.url; } catch(e){ alert('失败'); } },
 
                 async loadKeywords() { const res = await fetch('/api/admin/tag-keywords', {headers:this.auth()}); this.keywords = await res.json(); },
@@ -155,28 +170,21 @@
                 async selectChat(u) { this.activeChatUser = u; const res = await fetch(`/api/admin/messages/${u.id}`, { headers:this.auth() }); if(res.ok) { this.currentChatMsgs = await res.json(); this.$nextTick(() => { const c = document.getElementById('adminChatContainer'); if(c) c.scrollTop = c.scrollHeight; }); } },
                 async sendReply() { if(!this.replyContent) return; const res = await fetch('/api/admin/message/reply', { method: 'POST', headers: this.auth(), body: JSON.stringify({ userId: this.activeChatUser.id, content: this.replyContent }) }); if(res.ok) { this.replyContent = ''; this.selectChat(this.activeChatUser); } },
                 
-                // === 备份与恢复 ===
+                // 恢复与备份
                 async backupData() { if(!confirm('下载备份?')) return; const res = await fetch('/api/admin/backup', { headers:this.auth() }); if(res.ok) { const blob = await res.blob(); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); } },
                 triggerRestore() { document.getElementById('restoreInput').click(); },
                 async handleRestore(e) {
                     const file = e.target.files[0]; if(!file) return;
-                    if(!confirm('⚠️ 警告：这将清空当前所有数据并覆盖为备份文件中的数据！确认继续？')) return;
-                    
+                    if(!confirm('⚠️ 警告：覆盖所有数据！')) return;
                     const reader = new FileReader();
                     reader.onload = async (evt) => {
                         try {
                             const json = JSON.parse(evt.target.result);
-                            const res = await fetch('/api/admin/restore', {
-                                method: 'POST', headers: this.auth(),
-                                body: JSON.stringify(json)
-                            });
-                            if(res.ok) { alert('数据恢复成功！页面将刷新'); location.reload(); }
-                            else alert('恢复失败: ' + (await res.json()).error);
-                        } catch(err) { alert('文件解析错误'); }
+                            const res = await fetch('/api/admin/restore', {method:'POST', headers:this.auth(), body:JSON.stringify(json)});
+                            if(res.ok) { alert('恢复成功，刷新页面'); location.reload(); } else alert('失败: '+(await res.json()).error);
+                        } catch(err) { alert('文件错误'); }
                     };
-                    reader.readAsText(file);
-                    // 清空input防止重复触发
-                    e.target.value = '';
+                    reader.readAsText(file); e.target.value = '';
                 },
 
                 async delResource(id) { if(confirm('删?')) { await fetch('/api/admin/resource/delete', {method:'POST', headers:this.auth(), body:JSON.stringify({id})}); this.loadResources(); } },
