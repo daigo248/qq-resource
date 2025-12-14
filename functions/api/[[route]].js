@@ -4,10 +4,7 @@ import { SignJWT, jwtVerify } from 'jose';
 
 const app = new Hono().basePath('/api');
 
-// ... (省略工具函数和 import，保持原样) ...
-// (hashPassword, sendEmail, parseDateFromTitle, verifyToken, signToken 等函数保持不变)
-// ...
-
+// ... (工具函数保持不变)
 async function signToken(payload, secret) {
   const secretKey = new TextEncoder().encode(secret);
   return await new SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(secretKey);
@@ -49,46 +46,24 @@ function parseDateFromTitle(title) {
   return "";
 }
 
-// 每日配额自动计算
 async function syncUserQuota(env, user, todayStr) {
-  // 如果今天已经计算过（无论是系统自动还是管理员手动），直接返回
   if (user.last_calc_date === todayStr) return user;
-
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   let newLimit = 1;         
   let newConsecutive = 0;   
-
   if (user.last_unlock_date === yesterday) {
       newConsecutive = (user.consecutive_days || 0) + 1; 
       let maxCap = 3;
       if (newConsecutive > 20) maxCap = 5; else if (newConsecutive > 10) maxCap = 4;
-      // 这里的逻辑：基于连续天数计算应得的钥匙，而不是基于昨天的钥匙+1
-      // 这样可以防止管理员手动改了钥匙后，第二天突然暴增或暴减
-      // 基础逻辑：1 + 增量。
-      // 但为了简单兼容，我们还是用 old + 1，但也做个兜底
       newLimit = Math.min((user.daily_limit || 1) + 1, maxCap);
-  } else if (user.last_unlock_date === todayStr) {
-      // 理论不应进这里，除非手动改库
-      return user;
-  } else {
-      // 断签
-      newConsecutive = 0; 
-      newLimit = 1;       
-  }
-
-  await env.DB.prepare('UPDATE users SET daily_limit = ?, consecutive_days = ?, last_calc_date = ? WHERE id = ?')
-    .bind(newLimit, newConsecutive, todayStr, user.id).run();
-  
-  user.daily_limit = newLimit;
-  user.consecutive_days = newConsecutive;
-  user.last_calc_date = todayStr;
+  } else if (user.last_unlock_date === todayStr) { return user; } 
+  else { newConsecutive = 0; newLimit = 1; }
+  await env.DB.prepare('UPDATE users SET daily_limit = ?, consecutive_days = ?, last_calc_date = ? WHERE id = ?').bind(newLimit, newConsecutive, todayStr, user.id).run();
+  user.daily_limit = newLimit; user.consecutive_days = newConsecutive; user.last_calc_date = todayStr;
   return user;
 }
-
-// 防刷
 async function checkRateLimit(env, identifier, endpoint, limit, windowSeconds) {
-    const now = Date.now();
-    const windowStart = now - (windowSeconds * 1000);
+    const now = Date.now(); const windowStart = now - (windowSeconds * 1000);
     if (Math.random() < 0.01) await env.DB.prepare('DELETE FROM rate_limits WHERE created_at < ?').bind(now - 3600000).run();
     const count = await env.DB.prepare('SELECT COUNT(*) as c FROM rate_limits WHERE identifier = ? AND endpoint = ? AND created_at > ?').bind(identifier, endpoint, windowStart).first();
     if (count.c >= limit) return false;
@@ -96,10 +71,9 @@ async function checkRateLimit(env, identifier, endpoint, limit, windowSeconds) {
     return true;
 }
 
-// ... 认证、首页、标签、用户info、解锁、评论、点赞、私信 等接口 (与之前完全一致，此处省略以防超长，请确保保留) ...
-// (请确保你保留了之前的 app.post('/auth/send-code'...), app.get('/public/home'...), 等等)
-
-// 1. 认证
+// ... 认证、资源、标签等接口保持不变 ...
+// (为了篇幅，这里省略中间未变代码，请务必保留原有的 auth, public, admin/resource 等接口)
+// 请确认包含以下常用接口: 
 app.post('/auth/send-code', async (c) => {
   const { email, type } = await c.req.json();
   if (!/^[1-9][0-9]{4,}@qq\.com$/.test(email)) return c.json({ error: '仅支持QQ邮箱' }, 400);
@@ -170,28 +144,18 @@ app.post('/resource/like', async (c) => { const t=c.req.header('Authorization')?
 app.post('/user/message/send', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u) return c.json({error:'未登录'},401); if(await checkMute(c.env,u.id)) return c.json({error:'禁言中'},403); const {content}=await c.req.json(); await c.env.DB.prepare('INSERT INTO messages(user_id,sender,content) VALUES(?,"user",?)').bind(u.id,content).run(); return c.json({success:true}); });
 app.get('/user/messages', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u) return c.json({error:'未登录'},401); const r=await c.env.DB.prepare('SELECT * FROM messages WHERE user_id=? ORDER BY id ASC').bind(u.id).all(); await c.env.DB.prepare('UPDATE messages SET is_read=1 WHERE user_id=? AND sender="admin" AND is_read=0').bind(u.id).run(); return c.json(r.results); });
 
-// === 管理员 API (请确保 admin/user/quota 替换为下面的代码) ===
+// === 管理员 API ===
 
-// 【修复版】管理员修改用户配额
-app.post('/admin/user/quota', async (c) => {
-  const t = c.req.header('Authorization')?.split(' ')[1]; 
-  const u = await verifyToken(t, c.env.JWT_SECRET); 
-  if(!u || u.role !== 'admin') return c.json({error:'无权操作'}, 403);
-  
-  const { userId, config } = await c.req.json();
-  // 前端传来的 config 格式: { limit: xx }
-  const limit = parseInt(config.limit); 
-
-  const today = new Date().toISOString().split('T')[0];
-  
-  // 更新 daily_limit，并把 last_calc_date 设为今天，防止被系统自动同步逻辑覆盖
-  await c.env.DB.prepare(`UPDATE users SET daily_limit = ?, last_calc_date = ? WHERE id = ?`)
-    .bind(limit, today, userId).run();
-
-  return c.json({ success: true });
+// 【核心修改】用户管理查询: 使用 SELECT *，防止漏字段报错
+app.get('/admin/users', async (c) => { 
+  const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); 
+  // 修改：直接查 *，确保所有字段（包括 is_muted, consecutive_days）都能拿到
+  const r=await c.env.DB.prepare('SELECT * FROM users WHERE role!="admin" ORDER BY id DESC').all(); 
+  return c.json(r.results); 
 });
 
-// ... (其他管理员API保持不变) ...
+// 其他管理员 API (保持不变)
+app.get('/admin/dashboard', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const [logs,userC,postC,msgC,unlockC]=await Promise.all([c.env.DB.prepare('SELECT * FROM admin_logs ORDER BY id DESC LIMIT 10').all(),c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM resources').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM messages').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM unlocked_items WHERE date_str = ?').bind(new Date().toISOString().split('T')[0]).first()]); c.header('Cache-Control','private, max-age=30'); return c.json({logs:logs.results,stats:{userCount:userC.c,postCount:postC.c,msgCount:msgC.c,todayUnlock:unlockC.c}}); });
 app.get('/admin/tag-keywords', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare('SELECT * FROM tag_keywords ORDER BY id DESC').all(); return c.json(r.results); });
 app.post('/admin/tag-keywords', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {action,id,keyword,tagName,tagType}=await c.req.json(); if(action==='add') await c.env.DB.prepare('INSERT INTO tag_keywords(keyword,tag_name,tag_type) VALUES(?,?,?)').bind(keyword,tagName,tagType).run(); else if(action==='del') await c.env.DB.prepare('DELETE FROM tag_keywords WHERE id=?').bind(id).run(); return c.json({success:true}); });
 app.get('/admin/tags/all', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM resource_tags WHERE tag_id = t.id) as post_count FROM tags t ORDER BY post_count DESC`).all(); return c.json(r.results); });
@@ -204,7 +168,10 @@ app.get('/admin/resource/:id', async (c) => { const t=c.req.header('Authorizatio
 app.get('/admin/resources', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const q=c.req.query('q'); const catId=c.req.query('catId'); const tagId=c.req.query('tagId'); const page=parseInt(c.req.query('page')||'1'); const size=50; const off=(page-1)*size; let sql='SELECT DISTINCT r.id, r.title, r.category_id, r.custom_date, r.created_at FROM resources r LEFT JOIN resource_tags rt ON r.id=rt.resource_id LEFT JOIN tags t ON rt.tag_id=t.id'; let p=[]; let k=[]; if(q){k.push("(r.title LIKE ? OR t.name LIKE ?)");p.push(`%${q}%`,`%${q}%`);} if(catId){k.push("r.category_id=?");p.push(catId);} if(tagId){k.push("rt.tag_id=?");p.push(tagId);} if(k.length>0) sql+=' WHERE '+k.join(' AND '); sql+=' ORDER BY r.id DESC LIMIT ? OFFSET ?'; p.push(size,off); const r=await c.env.DB.prepare(sql).bind(...p).all(); return c.json(r.results); });
 app.post('/admin/upload', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const b=await c.req.parseBody(); const f=b['file']; if(f&&f.name){ const n=`${Date.now()}-${f.name}`; await c.env.BUCKET.put(n,await f.arrayBuffer(),{httpMetadata:{contentType:f.type}}); return c.json({url:`${c.env.R2_DOMAIN}/${n}`}); } return c.json({error:'无效'},400); });
 app.post('/admin/category', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {action,name,id}=await c.req.json(); if(action==='add') await c.env.DB.prepare('INSERT INTO categories(name) VALUES(?)').bind(name).run(); if(action==='del') await c.env.DB.prepare('DELETE FROM categories WHERE id=?').bind(id).run(); return c.json({success:true}); });
-app.get('/admin/dashboard', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const [logs,userC,postC,msgC,unlockC]=await Promise.all([c.env.DB.prepare('SELECT * FROM admin_logs ORDER BY id DESC LIMIT 10').all(),c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM resources').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM messages').first(),c.env.DB.prepare('SELECT COUNT(*) as c FROM unlocked_items WHERE date_str = ?').bind(new Date().toISOString().split('T')[0]).first()]); c.header('Cache-Control','private, max-age=30'); return c.json({logs:logs.results,stats:{userCount:userC.c,postCount:postC.c,msgCount:msgC.c,todayUnlock:unlockC.c}}); });
+app.post('/admin/users/batch', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {userIds,action}=await c.req.json(); const ph=userIds.map(()=>'?').join(','); if(action==='mute') await c.env.DB.prepare(`UPDATE users SET is_muted=1 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='unmute') await c.env.DB.prepare(`UPDATE users SET is_muted=0 WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='delete') await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); else if(action==='ban'){ const us=await c.env.DB.prepare(`SELECT email FROM users WHERE id IN (${ph})`).bind(...userIds).all(); for(const x of us.results) await c.env.DB.prepare('INSERT OR IGNORE INTO blacklist (email,reason) VALUES (?, "批量")').bind(x.email).run(); await c.env.DB.prepare(`DELETE FROM users WHERE id IN (${ph})`).bind(...userIds).run(); } return c.json({success:true}); });
+app.get('/admin/blacklist', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare('SELECT * FROM blacklist ORDER BY created_at DESC').all(); return c.json(r.results); });
+app.post('/admin/blacklist/delete', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); await c.env.DB.prepare('DELETE FROM blacklist WHERE email=?').bind((await c.req.json()).email).run(); return c.json({success:true}); });
+app.post('/admin/user/quota', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {userId,config}=await c.req.json(); const limit = parseInt(config.limit); const today = new Date().toISOString().split('T')[0]; await c.env.DB.prepare('UPDATE users SET daily_limit = ?, last_calc_date = ? WHERE id = ?').bind(limit, today, userId).run(); return c.json({success:true}); });
 app.get('/admin/inbox', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare(`SELECT DISTINCT u.id,u.username,u.email,(SELECT content FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) as last_msg,(SELECT created_at FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) as last_time,(SELECT COUNT(*) FROM messages WHERE user_id=u.id AND sender='user' AND is_read=0) as unread FROM users u WHERE u.id IN (SELECT DISTINCT user_id FROM messages) ORDER BY last_time DESC`).all(); return c.json(r.results); });
 app.get('/admin/messages/:id', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const r=await c.env.DB.prepare('SELECT * FROM messages WHERE user_id=? ORDER BY id ASC').bind(c.req.param('id')).all(); await c.env.DB.prepare('UPDATE messages SET is_read=1 WHERE user_id=? AND sender="user" AND is_read=0').bind(c.req.param('id')).run(); return c.json(r.results); });
 app.post('/admin/message/reply', async (c) => { const t=c.req.header('Authorization')?.split(' ')[1]; const u=await verifyToken(t,c.env.JWT_SECRET); if(!u||u.role!=='admin') return c.json({error:'无权'},403); const {userId,content}=await c.req.json(); await c.env.DB.prepare('INSERT INTO messages(user_id,sender,content) VALUES(?,"admin",?)').bind(userId,content).run(); return c.json({success:true}); });
